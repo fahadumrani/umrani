@@ -15,6 +15,7 @@ export function initAdsterraCloseButton() {
   // This handler does not simulate an ad click, open a link, or grant access.
   closeButton.addEventListener("click", () => {
     shell.hidden = true;
+    shell.classList.remove("limit-ad-mode", "adsterra-ad-highlight");
     // Let the lock screen return if this display ad was opened from it.
     document.dispatchEvent(new CustomEvent("umrani:display-ad-closed"));
     try {

@@ -289,6 +289,12 @@ input, textarea { font-family: inherit; }
   gap: 6px;
   max-width: min(96vw, 420px);
 }
+.adsterra-ad-shell.limit-ad-mode {
+  /* Above the token-limit overlay (100), while the AI stays locked below. */
+  z-index: 130;
+  right: 24px;
+  bottom: 96px;
+}
 .adsterra-ad-label {
   position: absolute;
   top: -17px;
@@ -315,6 +321,14 @@ input, textarea { font-family: inherit; }
 .adsterra-close-btn:hover {
   background: var(--bg-hover);
   color: var(--danger);
+}
+.adsbox#adBlockBait {
+  position: absolute;
+  left: -10000px;
+  top: -10000px;
+  width: 2px;
+  height: 2px;
+  pointer-events: none;
 }
 .adsterra-close-btn[hidden] { display: none; }
 .adsterra-ad-highlight {
@@ -669,6 +683,13 @@ input, textarea { font-family: inherit; }
   margin-top: 10px !important;
   color: var(--text-muted) !important;
   font-size: 0.76rem !important;
+}
+.adblock-warning {
+  margin-top: 14px !important;
+  color: var(--danger) !important;
+  font-size: 0.86rem !important;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .lock-error {

@@ -64,11 +64,19 @@
       3. Clicking × only hides this shell for the current browser session.
          It does not click the advertisement or reset the daily allowance.
     -->
+    <!-- Ad blockers commonly hide elements with these standard ad classes.
+         JavaScript combines this bait check with the Adsterra script status. -->
+    <div class="adsbox ad-banner ad-placement" id="adBlockBait" aria-hidden="true"></div>
     <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement">
       <span class="adsterra-ad-label">Advertisement</span>
       <button class="adsterra-close-btn" id="adsterraCloseButton"
               type="button" aria-label="Close advertisement" title="Close advertisement">×</button>
-      <script data-cfasync="false"
+      <script>
+        window.__umraniAdsterraStatus = "loading";
+      </script>
+      <script id="adsterraSocialBarScript" data-cfasync="false"
+              onload="window.__umraniAdsterraStatus='loaded'"
+              onerror="window.__umraniAdsterraStatus='error'"
               src="https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8"></script>
     </section>
 
@@ -141,6 +149,9 @@
         Show Ad
       </button>
       <p class="display-ad-note" id="tokenLimitInfo">This browser has reached its token limit.</p>
+      <p class="adblock-warning" id="adBlockWarning" hidden>
+        Disable the ad blocker to use AI, then refresh this page.
+      </p>
     </div>
   </div>
 
@@ -149,6 +160,6 @@
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=17"></script>
+  <script defer src="dist/app.bundle.js?v=19"></script>
 </body>
 </html>

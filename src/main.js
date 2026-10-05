@@ -43,7 +43,8 @@ import {
 import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
 import {
   LOCK_OVERLAY_ELEMENT_ID, OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID,
-  LOCK_MESSAGE_ELEMENT_ID, TOKEN_LIMIT_INFO_ELEMENT_ID
+  LOCK_MESSAGE_ELEMENT_ID, TOKEN_LIMIT_INFO_ELEMENT_ID,
+  AD_BLOCK_WARNING_ELEMENT_ID
 } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
 import { initAdsterraCloseButton } from "./ui/ads.js";
@@ -89,6 +90,7 @@ function initDom() {
   dom.openDisplayAdBtn = document.getElementById(OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID);
   dom.lockMsg = document.getElementById(LOCK_MESSAGE_ELEMENT_ID);
   dom.tokenLimitInfo = document.getElementById(TOKEN_LIMIT_INFO_ELEMENT_ID);
+  dom.adBlockWarning = document.getElementById(AD_BLOCK_WARNING_ELEMENT_ID);
   dom.toast = document.getElementById(TOAST_ELEMENT_ID);
   dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
 }
@@ -107,6 +109,7 @@ const state = {
   isLocked: false,
   tokensUsed: 0,
   limitReached: false,
+  adBlockDetected: null,
   activeRequestChatId: null,
   controller: null,        // AbortController for current request
 };
@@ -806,15 +809,18 @@ function updateComposerState() {
   // Typing stays possible while streaming; only SENDING is blocked
   // (prevents duplicate sends without freezing the composer).
   dom.messageInput.disabled = locked;
-  dom.messageInput.placeholder = locked ? "Watch ad to continue" : "Ask anything…";
+  const lockedMessage = state.adBlockDetected
+    ? "Disable ad blocker to use AI"
+    : "Watch ad to continue";
+  dom.messageInput.placeholder = locked ? lockedMessage : "Ask anything…";
   dom.messageInput.setAttribute(
     "aria-label",
-    locked ? "Watch ad to continue" : "Message"
+    locked ? lockedMessage : "Message"
   );
   const canSend = !locked && !state.isStreaming &&
     dom.messageInput.value.trim().length > 0;
   dom.sendBtn.disabled = !canSend;
-  dom.sendBtn.title = locked ? "Watch ad to continue" : "Send message";
+  dom.sendBtn.title = locked ? lockedMessage : "Send message";
   if (locked) dom.composer.classList.add("locked");
   else dom.composer.classList.remove("locked");
 }
@@ -1318,6 +1324,7 @@ function showLock() {
   if (dom.tokenLimitInfo) {
     dom.tokenLimitInfo.textContent = "This browser has reached its 10,000-token limit.";
   }
+  updateLimitAdState();
 }
 
 function hideLock() {
@@ -1372,12 +1379,55 @@ function broadcastTokenSync() {
    display ad. This display placement does not reset token usage.
    The persistent browser counter decides whether requests can run.
    ========================================================== */
+function detectAdBlocker() {
+  const bait = document.getElementById("adBlockBait");
+  const baitStyle = bait ? window.getComputedStyle(bait) : null;
+  const baitBlocked = !bait || !baitStyle ||
+    baitStyle.display === "none" ||
+    baitStyle.visibility === "hidden" ||
+    bait.offsetHeight === 0 ||
+    bait.offsetWidth === 0;
+  const scriptStatus = window.__umraniAdsterraStatus;
+  const scriptBlocked = scriptStatus === "error" || scriptStatus !== "loaded";
+  return baitBlocked || scriptBlocked;
+}
+
+function updateLimitAdState() {
+  if (state.adBlockDetected === null) {
+    dom.openDisplayAdBtn.disabled = true;
+    dom.openDisplayAdBtn.textContent = "Checking ad…";
+    dom.adBlockWarning.hidden = true;
+    return;
+  }
+
+  dom.openDisplayAdBtn.disabled = state.adBlockDetected;
+  dom.openDisplayAdBtn.textContent = state.adBlockDetected
+    ? "Ad blocker detected"
+    : "Show Ad";
+  dom.adBlockWarning.hidden = !state.adBlockDetected;
+  updateComposerState();
+}
+
+function initAdBlockDetection() {
+  // Give the third-party script time to load before deciding. A failed ad
+  // request can also mean a network/privacy blocker, so refresh is required.
+  window.setTimeout(() => {
+    state.adBlockDetected = detectAdBlocker();
+    updateLimitAdState();
+  }, 1800);
+}
+
 /* OPEN ADSTERRA DISPLAY AD:
    This button takes the user from the lock overlay to the Adsterra display
    ad already present in index.html. It never simulates a click on the ad.
    The ad's close control is shown after 1.5 seconds. Closing it returns the
    user to the lock overlay, while the usage limit remains locked. */
 function onOpenDisplayAdClick() {
+  if (state.adBlockDetected) {
+    updateLimitAdState();
+    showToast("Disable the ad blocker, then refresh this page.");
+    return;
+  }
   const shell = document.getElementById("adsterraAdShell");
   const closeButton = document.getElementById("adsterraCloseButton");
   if (!shell) {
@@ -1386,7 +1436,10 @@ function onOpenDisplayAdClick() {
   }
 
   shell.hidden = false;
-  dom.lockOverlay.hidden = true;
+  // Keep the token-limit overlay active. Raise only the ad shell above it,
+  // so the user cannot return to the disabled AI interface while viewing it.
+  dom.lockOverlay.hidden = false;
+  shell.classList.add("limit-ad-mode");
 
   // Keep Close unavailable briefly so the display ad is visible first.
   if (closeButton) {
@@ -1397,7 +1450,6 @@ function onOpenDisplayAdClick() {
     }, 1500);
   }
 
-  shell.scrollIntoView({ behavior: "smooth", block: "center" });
   shell.classList.add("adsterra-ad-highlight");
   window.setTimeout(() => shell.classList.remove("adsterra-ad-highlight"), 1500);
 }
@@ -1575,6 +1627,7 @@ async function init() {
 
   initEventListeners();
   initAdsterraCloseButton();
+  initAdBlockDetection();
   initVoice();
   initBroadcastChannel();
 
