@@ -1254,15 +1254,26 @@
     const baitBlocked = !bait || !baitStyle || baitStyle.display === "none" || baitStyle.visibility === "hidden" || bait.offsetHeight === 0 || bait.offsetWidth === 0;
     const scriptStatus = window.__umraniAdsterraStatus;
     const scriptBlocked = scriptStatus === "error" || scriptStatus !== "loaded";
-    return baitBlocked || scriptBlocked;
+    const nativeContainer = document.getElementById(
+      "container-63ea484e1a293480518c8d527b5e81e3"
+    );
+    const creativeMissing = !nativeContainer || nativeContainer.childElementCount === 0;
+    return baitBlocked || scriptBlocked || creativeMissing;
   }
   function updateAdBreakWarning() {
     if (!dom.adBlockWarning) return;
     dom.adBlockWarning.hidden = !state.adBlockDetected;
   }
   function initAdBlockDetection() {
-    window.setTimeout(() => {
-      state.adBlockDetected = detectAdBlocker();
+    let attempts = 0;
+    const check = () => {
+      attempts += 1;
+      const blocked = detectAdBlocker();
+      if (blocked && attempts < 5) {
+        window.setTimeout(check, 1e3);
+        return;
+      }
+      state.adBlockDetected = blocked;
       updateAdBreakWarning();
       if (state.adBreakActive) {
         const closeButton = document.getElementById("adsterraCloseButton");
@@ -1273,7 +1284,8 @@
           scheduleAdClose();
         }
       }
-    }, 1800);
+    };
+    window.setTimeout(check, 1e3);
   }
   function scheduleAdClose() {
     if (!state.adBreakActive || state.adBlockDetected !== false || state.adCloseScheduled) return;

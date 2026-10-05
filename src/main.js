@@ -1321,7 +1321,12 @@ function detectAdBlocker() {
     bait.offsetWidth === 0;
   const scriptStatus = window.__umraniAdsterraStatus;
   const scriptBlocked = scriptStatus === "error" || scriptStatus !== "loaded";
-  return baitBlocked || scriptBlocked;
+  const nativeContainer = document.getElementById(
+    "container-63ea484e1a293480518c8d527b5e81e3"
+  );
+  const creativeMissing = !nativeContainer ||
+    nativeContainer.childElementCount === 0;
+  return baitBlocked || scriptBlocked || creativeMissing;
 }
 
 function updateAdBreakWarning() {
@@ -1330,8 +1335,16 @@ function updateAdBreakWarning() {
 }
 
 function initAdBlockDetection() {
-  window.setTimeout(() => {
-    state.adBlockDetected = detectAdBlocker();
+  let attempts = 0;
+  const check = () => {
+    attempts += 1;
+    const blocked = detectAdBlocker();
+    // Give the Native Banner creative up to five seconds to populate.
+    if (blocked && attempts < 5) {
+      window.setTimeout(check, 1000);
+      return;
+    }
+    state.adBlockDetected = blocked;
     updateAdBreakWarning();
     if (state.adBreakActive) {
       const closeButton = document.getElementById("adsterraCloseButton");
@@ -1342,7 +1355,8 @@ function initAdBlockDetection() {
         scheduleAdClose();
       }
     }
-  }, 1800);
+  };
+  window.setTimeout(check, 1000);
 }
 
 function scheduleAdClose() {

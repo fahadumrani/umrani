@@ -315,6 +315,17 @@ input, textarea { font-family: inherit; }
   top: 8px;
   right: 8px;
 }
+.native-ad-container {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.native-ad-container > * {
+  max-width: 100%;
+}
 .adsterra-ad-label {
   position: absolute;
   top: -17px;

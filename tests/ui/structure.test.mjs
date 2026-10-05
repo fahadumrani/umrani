@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 test("HTML points to the modular Umrani entry point and favicon", async () => {
   const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
   assert.match(html, /styles\/main\.css/);
-  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=25"/);
+  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=26"/);
   assert.match(html, /text-anchor='middle'%3EU%3C\/text/);
   assert.match(html, /https:\/\/fahadumrani\.devs\.li\//);
   assert.match(html, /id="adsterraAdShell"/);
@@ -13,6 +13,8 @@ test("HTML points to the modular Umrani entry point and favicon", async () => {
   assert.doesNotMatch(html, /id="adBreakOverlay"/);
   assert.match(html, /id="adBlockBait"/);
   assert.match(html, /id="adBlockWarning"/);
+  assert.match(html, /bauval\.org\/21\/63ea484e1a293480518c8d527b5e81e3/);
+  assert.match(html, /container-63ea484e1a293480518c8d527b5e81e3/);
   assert.doesNotMatch(html, /securepubads\.g\.doubleclick\.net/);
   assert.doesNotMatch(html, /id="watchAdBtn"/);
   assert.match(html, /https:\/\/bauval\.org\/14\/a67c4a1da3645718e3483de61514fbe8/);

@@ -67,6 +67,11 @@
     <!-- Ad blockers commonly hide elements with these standard ad classes.
          JavaScript combines this bait check with the Adsterra script status. -->
     <div class="adsbox ad-banner ad-placement" id="adBlockBait" aria-hidden="true"></div>
+    <!-- Social Bar remains active for Adsterra's notification-style ads. -->
+    <script id="adsterraSocialBarScript" data-cfasync="false"
+            src="https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8"></script>
+
+    <!-- Native Banner is the format that can render inside the chat feed. -->
     <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement" hidden>
       <span class="adsterra-ad-label">Advertisement</span>
       <button class="adsterra-close-btn" id="adsterraCloseButton"
@@ -77,10 +82,12 @@
       <script>
         window.__umraniAdsterraStatus = "loading";
       </script>
-      <script id="adsterraSocialBarScript" data-cfasync="false"
+      <script id="adsterraNativeBannerScript" async="async" data-cfasync="false"
               onload="window.__umraniAdsterraStatus='loaded'"
               onerror="window.__umraniAdsterraStatus='error'"
-              src="https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8"></script>
+              src="https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3"></script>
+      <div class="native-ad-container"
+           id="container-63ea484e1a293480518c8d527b5e81e3"></div>
     </section>
 
     <main class="chat-area" id="chatArea" aria-live="polite">
@@ -138,6 +145,6 @@
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=25"></script>
+  <script defer src="dist/app.bundle.js?v=26"></script>
 </body>
 </html>
