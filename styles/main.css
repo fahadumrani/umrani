@@ -277,6 +277,50 @@ input, textarea { font-family: inherit; }
   border-radius: 50%;
   animation: pulse 1.1s ease-in-out infinite;
 }
+
+/* ---------- Adsterra Social Bar shell ---------- */
+.adsterra-ad-shell {
+  position: fixed;
+  right: 14px;
+  bottom: 86px;
+  z-index: 32;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: min(96vw, 420px);
+}
+.adsterra-ad-label {
+  position: absolute;
+  top: -17px;
+  right: 30px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  pointer-events: none;
+}
+.adsterra-close-btn {
+  position: absolute;
+  top: -25px;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+}
+.adsterra-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+.adsterra-close-btn[hidden] { display: none; }
+.adsterra-ad-highlight {
+  outline: 3px solid var(--accent);
+  outline-offset: 5px;
+}
 @keyframes pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1.15); }
@@ -615,6 +659,17 @@ input, textarea { font-family: inherit; }
 }
 .watch-ad-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .watch-ad-btn:disabled { opacity: 0.5; cursor: wait; }
+.display-ad-btn {
+  margin-bottom: 10px;
+  background: var(--bg-main);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.display-ad-note {
+  margin-top: 10px !important;
+  color: var(--text-muted) !important;
+  font-size: 0.76rem !important;
+}
 
 .lock-error {
   color: var(--danger) !important;

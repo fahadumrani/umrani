@@ -1,7 +1,7 @@
 /* ==========================================================
    Umrani — app.js
    Frontend-only AI chatbot. Vanilla JS. IndexedDB persistence.
-   Google Ad Manager Rewarded Ads for Web (Google Publisher Tag).
+   Adsterra display ad with a persistent browser token allowance.
    Sections:
      1. Configuration
      2. DOM references
@@ -13,7 +13,7 @@
      8. Message handling
      9. API / streaming
     10. Token state
-    11. Rewarded ads
+    11. Adsterra display ad
     12. Voice input
     13. Event listeners
     14. Initialization
@@ -21,8 +21,7 @@
 
 import {
   API_PROVIDERS, APP_NAME, TOKEN_LIMIT,
-  GOOGLE_AD_MANAGER_NETWORK_CODE, REWARDED_AD_UNIT_PATH,
-  REWARDED_AD_FALLBACK_MS, SYSTEM_PROMPT, REQUEST_TIMEOUT_MS
+  SYSTEM_PROMPT, REQUEST_TIMEOUT_MS
 } from "./config/config.js";
 import { makeId, isRtlText, estimateTokens } from "./utils/helpers.js";
 import { singleLine } from "./utils/formatter.js";
@@ -43,10 +42,11 @@ import {
 } from "./ui/chat.js";
 import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
 import {
-  LOCK_OVERLAY_ELEMENT_ID, WATCH_AD_BUTTON_ELEMENT_ID, LOCK_MESSAGE_ELEMENT_ID,
-  LOCK_ERROR_ELEMENT_ID
+  LOCK_OVERLAY_ELEMENT_ID, OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID,
+  LOCK_MESSAGE_ELEMENT_ID, TOKEN_LIMIT_INFO_ELEMENT_ID
 } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
+import { initAdsterraCloseButton } from "./ui/ads.js";
 
 function getProviderModels(provider) {
   if (!provider || !Array.isArray(provider.models)) return [];
@@ -59,9 +59,9 @@ function isProviderConfigured(provider) {
   return Boolean(
     provider &&
     typeof provider.url === "string" &&
-    !provider.url.startsWith("YOUR_") &&
+    !provider.url.includes("YOUR_") &&
     typeof provider.key === "string" &&
-    !provider.key.startsWith("YOUR_") &&
+    provider.key.length > 0 &&
     getProviderModels(provider).length > 0
   );
 }
@@ -86,9 +86,9 @@ function initDom() {
   dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
   dom.lockOverlay = document.getElementById(LOCK_OVERLAY_ELEMENT_ID);
-  dom.watchAdBtn = document.getElementById(WATCH_AD_BUTTON_ELEMENT_ID);
+  dom.openDisplayAdBtn = document.getElementById(OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID);
   dom.lockMsg = document.getElementById(LOCK_MESSAGE_ELEMENT_ID);
-  dom.lockError = document.getElementById(LOCK_ERROR_ELEMENT_ID);
+  dom.tokenLimitInfo = document.getElementById(TOKEN_LIMIT_INFO_ELEMENT_ID);
   dom.toast = document.getElementById(TOAST_ELEMENT_ID);
   dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
 }
@@ -107,13 +107,8 @@ const state = {
   isLocked: false,
   tokensUsed: 0,
   limitReached: false,
-  rewardedAdReady: false,
-  rewardedAdEvent: null,   // stored rewardedSlotReady event
-  rewardedAdRequestActive: false,
-  killRewardedSlot: null,  // cleanup fn from GPT listener registration
   activeRequestChatId: null,
   controller: null,        // AbortController for current request
-  rewardGranted: false,    // true only inside rewardedSlotGranted window
 };
 
 /* ==========================================================
@@ -209,11 +204,11 @@ function showToast(message, ms = 2800) {
 }
 
 /* ==========================================================
-   10. TOKEN STATE (persistent, silent)
+   10. PERSISTENT LOCAL TOKEN STATE
    ----------------------------------------------------------
-   Stored in IndexedDB appState under key "tokenState".
-   Survives refresh and browser reopen. Only rewardedSlotGranted
-   can reset it. The limit/usage is NEVER drawn to the UI.
+   The browser stores the 10,000-token allowance in IndexedDB.
+   There is no automatic time-based reset. Because this is a static
+   frontend, clearing browser storage can reset this local counter.
    ========================================================== */
 async function loadTokenState() {
   try {
@@ -221,18 +216,9 @@ async function loadTokenState() {
     if (rec) {
       state.tokensUsed = Math.max(0, Number(rec.tokensUsed) || 0);
       state.limitReached = !!rec.limitReached;
-    } else {
-      // First use: give the user a full free allowance and PERSIST it
-      // immediately so refresh/browser-reopen can never re-grant a
-      // second "new user" allowance on a modified count.
-      state.tokensUsed = 0;
-      state.limitReached = false;
-      await saveTokenState();
     }
   } catch (err) {
     console.warn("Failed to load token state", err);
-    state.tokensUsed = 0;
-    state.limitReached = false;
   }
   state.isLocked = state.limitReached;
   if (state.isLocked) lockUI(true);
@@ -820,9 +806,15 @@ function updateComposerState() {
   // Typing stays possible while streaming; only SENDING is blocked
   // (prevents duplicate sends without freezing the composer).
   dom.messageInput.disabled = locked;
+  dom.messageInput.placeholder = locked ? "Watch ad to continue" : "Ask anything…";
+  dom.messageInput.setAttribute(
+    "aria-label",
+    locked ? "Watch ad to continue" : "Message"
+  );
   const canSend = !locked && !state.isStreaming &&
     dom.messageInput.value.trim().length > 0;
   dom.sendBtn.disabled = !canSend;
+  dom.sendBtn.title = locked ? "Watch ad to continue" : "Send message";
   if (locked) dom.composer.classList.add("locked");
   else dom.composer.classList.remove("locked");
 }
@@ -941,6 +933,14 @@ async function sendMessage() {
       chat.updatedAt = Date.now();
       await persistChat(chat);
     }
+    if (err && err.code === "TOKEN_LIMIT_REACHED") {
+      state.tokensUsed = TOKEN_LIMIT;
+      state.limitReached = true;
+      state.isLocked = true;
+      await saveTokenState();
+      broadcastTokenSync();
+      showLock();
+    }
     renderActiveChat();
     showFriendlyError(err);
   } finally {
@@ -977,11 +977,12 @@ async function persistChat(chat) {
    ========================================================== */
 function mapApiError(status, providerName) {
   // Simple, user-friendly message for every error — no technical detail.
+  if (status === 429) return "This AI provider is temporarily rate-limited.";
   return "Server error. Please try again.";
 }
 
 function showFriendlyError(err) {
-  const msg = "Server error. Please try again.";
+  const msg = (err && err.userMessage) || "Server error. Please try again.";
   showToast(msg, 5000);
   // Full details stay in the console for troubleshooting.
   console.debug("Request error:", err && err.message ? err.message : err, err);
@@ -1044,10 +1045,12 @@ function streamWithProvider(apiMessages, provider, model) {
     const controller = new AbortController();
     state.controller = controller;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const headers = { "Content-Type": "application/json" };
+    if (provider.key) headers.Authorization = "Bearer " + provider.key;
 
     fetch(provider.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + provider.key },
+      headers,
       body: JSON.stringify({ model: model, messages: apiMessages, stream: true }),
       signal: controller.signal
     })
@@ -1057,7 +1060,11 @@ function streamWithProvider(apiMessages, provider, model) {
         try {
           const j = await res.json().catch(() => null);
           if (j && j.error && j.error.message) {
-            reject({ userMessage: mapApiError(status, provider.name) + " (" + status + ")", status });
+            reject({
+              userMessage: status === 429 ? j.error.message : mapApiError(status, provider.name),
+              status,
+              code: j.error.code || null
+            });
             return;
           }
         } catch (e) { /* ignore */ }
@@ -1296,8 +1303,8 @@ function updateStreamBubble() {
 /* ==========================================================
    Lock UI (shown when the internal limit is reached)
    ----------------------------------------------------------
-   Full-screen, LIGHT background. No token numbers anywhere.
-   Reward unlocks ONLY from rewardedSlotGranted.
+   The user can open the Adsterra display ad from this screen.
+   The local allowance has no automatic time-based reset.
    ========================================================== */
 function lockUI(locked) {
   state.isLocked = locked;
@@ -1305,16 +1312,12 @@ function lockUI(locked) {
 }
 
 function showLock() {
+  // This modal has no dismiss action. Opening the display ad temporarily
+  // reveals the ad; closing it returns here while the token limit stays set.
   dom.lockOverlay.hidden = false;
-  dom.lockError.hidden = true;
-  dom.watchAdBtn.disabled = !state.rewardedAdReady;
-  if (!state.rewardedAdReady) {
-    dom.watchAdBtn.textContent = "Loading ad…";
-  } else {
-    dom.watchAdBtn.textContent = "Watch Ad";
+  if (dom.tokenLimitInfo) {
+    dom.tokenLimitInfo.textContent = "This browser has reached its 10,000-token limit.";
   }
-  // Ensure a rewarded slot is requested once at limit time.
-  prepareRewardedAd();
 }
 
 function hideLock() {
@@ -1328,8 +1331,7 @@ function hideLock() {
 /* ==========================================================
    Multi-tab token sync (BroadcastChannel, browser-native)
    ----------------------------------------------------------
-   Lets a reward granted in one tab unlock the app in other tabs,
-   and prevents a stale (below-limit) tab from sending requests.
+   Keeps the daily allowance and lock state aligned across tabs.
    ========================================================== */
 let bc = null;
 function initBroadcastChannel() {
@@ -1360,204 +1362,44 @@ function initBroadcastChannel() {
 function broadcastTokenSync() {
   if (!bc) return;
   try {
-    bc.postMessage(state.limitReached ? { type: "locked" } : { type: "unlocked" });
+    bc.postMessage({ type: state.limitReached ? "locked" : "unlocked" });
   } catch (err) { /* ignore */ }
 }
 /* ==========================================================
-   11. REWARDED ADS (Google Ad Manager, via Google Publisher Tag)
+   11. ADSTERRA DISPLAY AD
    ----------------------------------------------------------
-   Genuine GPT rewarded web integration. Rules enforced here:
-   - Only ONE rewarded slot request at a time.
-   - "rewardedSlotReady" stores the event; nothing is granted yet.
-   - User clicks "Watch Ad" -> evt.makeRewardedVisible().
-   - "rewardedSlotGranted" is the ONLY path to reset tokens/unlock.
-   - "rewardedSlotClosed" destroys the slot; no grant = stays locked.
-   - No timers, no Continue button, no fake countdowns.
-   - If GPT fails to load (ad blocker / network), show the ad-blocker
-     message and keep the AI locked. We never bypass blockers.
+   The limit screen can reveal and focus the existing Adsterra
+   display ad. This display placement does not reset token usage.
+   The persistent browser counter decides whether requests can run.
    ========================================================== */
-const ADBLOCKER_MSG = "Please disable your ad blocker to continue using Umrani. After disabling your ad blocker, refresh this page.";
-
-function initGptRewarded() {
-  if (!("googletag" in window) || !window.googletag || !window.googletag.cmd) {
-    // GPT script blocked or failed: no rewarded capability.
-    return;
-  }
-  window.googletag.cmd.push(function () {
-    // Prepared lazily on demand (when lock screen appears) to avoid
-    // unnecessary ad requests.
-  });
-}
-
-function destroyRewardedSlot() {
-  if (typeof state.killRewardedSlot === "function") {
-    try { state.killRewardedSlot(); } catch (e) { /* ignore */ }
-  }
-  state.killRewardedSlot = null;
-  state.rewardedAdEvent = null;
-  state.rewardedAdReady = false;
-  state.rewardedAdRequestActive = false;
-  state.rewardGranted = false;
-}
-
-/* Request a rewarded slot ONCE. Guards against duplicate requests
-   from repeated clicks / re-renders / repeated lock checks. */
-function prepareRewardedAd() {
-  if (state.rewardedAdRequestActive || state.rewardedAdReady) return;
-
-  // Honest handling: without real Ad Manager values, ads cannot load.
-  if (GOOGLE_AD_MANAGER_NETWORK_CODE.indexOf("YOUR_") === 0 ||
-      REWARDED_AD_UNIT_PATH.indexOf("YOUR_") === 0) {
-    state.rewardedAdReady = false;
-    showAdProblem("Rewarded ads are not configured yet. The developer must add their Google Ad Manager network code and rewarded ad unit in the configuration module.");
-    return;
-  }
-  if (!window.googletag || !window.googletag.cmd) {
-    showAdBlockerMessage();
+/* OPEN ADSTERRA DISPLAY AD:
+   This button takes the user from the lock overlay to the Adsterra display
+   ad already present in index.html. It never simulates a click on the ad.
+   The ad's close control is shown after 1.5 seconds. Closing it returns the
+   user to the lock overlay, while the usage limit remains locked. */
+function onOpenDisplayAdClick() {
+  const shell = document.getElementById("adsterraAdShell");
+  const closeButton = document.getElementById("adsterraCloseButton");
+  if (!shell) {
+    showToast("The display ad is not available.");
     return;
   }
 
-  state.rewardedAdRequestActive = true;
+  shell.hidden = false;
+  dom.lockOverlay.hidden = true;
 
-  window.googletag.cmd.push(() => {
-    try {
-      const slot = googletag.defineOutOfPageSlot(
-        REWARDED_AD_UNIT_PATH,
-        googletag.enums.OutOfPageFormat.REWARDED
-      );
-      if (!slot) {
-        state.rewardedAdRequestActive = false;
-        showAdProblem("The rewarded ad slot could not be created. Please check your Ad Manager ad unit path in the configuration module.");
-        return;
-      }
-      slot.addService(googletag.pubads());
-
-      const onReady = (evt) => {
-        if (evt && evt.slot && evt.slot !== slot) return;
-        state.rewardedAdReady = true;
-        state.rewardedAdEvent = evt;
-        state.rewardedAdRequestActive = false;
-        if (!dom.lockOverlay.hidden) {
-          dom.watchAdBtn.disabled = false;
-          dom.watchAdBtn.textContent = "Watch Ad";
-        }
-      };
-      const onGranted = (evt) => {
-        if (evt && evt.slot && evt.slot !== slot) return;
-        // ONLY genuine Google reward unlocks the AI.
-        // Guard against duplicate/double reward events (rule: no double rewards).
-        if (state.rewardGranted) return;
-        state.rewardGranted = true;
-        unlockAfterReward();
-      };
-      const onClosed = (evt) => {
-        if (evt && evt.slot && evt.slot !== slot) return;
-        // Clean up slot + listeners; keep locked unless granted.
-        try { evt.destroySlot && evt.destroySlot(); } catch (e) { /* ignore */ }
-        try {
-          googletag.pubads().removeEventListener("rewardedSlotReady", onReady);
-          googletag.pubads().removeEventListener("rewardedSlotGranted", onGranted);
-          googletag.pubads().removeEventListener("rewardedSlotClosed", onClosed);
-          googletag.pubads().removeEventListener("slotRenderEnded", onRenderEnded);
-        } catch (e) { /* ignore */ }
-        state.rewardedAdReady = false;
-        state.rewardedAdRequestActive = false;
-        if (!state.rewardGranted) {
-          // Closed without reward: stay locked, allow a fresh request.
-          if (!dom.lockOverlay.hidden) {
-            dom.watchAdBtn.disabled = false;
-            dom.watchAdBtn.textContent = "Watch Ad";
-          }
-          setTimeout(prepareRewardedAd, REWARDED_AD_FALLBACK_MS);
-        }
-        state.rewardGranted = false;
-      };
-      const onRenderEnded = (evt) => {
-        if (!evt || evt.slot !== slot) return;
-        // If this slot rendered EMPTY (no ad served), GPT gave us no
-        // rewarded content to show — treat it as provider/ad-block
-        // failure: stay locked, tell the user, allow one retry.
-        if (evt && evt.slot === slot && !evt.isEmpty) return;
-        state.rewardedAdReady = false;
-        if (!state.rewardGranted && !dom.lockOverlay.hidden) {
-          state.rewardedAdRequestActive = false;
-          showAdBlockerMessage();
-        }
-      };
-
-      googletag.pubads().addEventListener("rewardedSlotReady", onReady);
-      googletag.pubads().addEventListener("rewardedSlotGranted", onGranted);
-      googletag.pubads().addEventListener("rewardedSlotClosed", onClosed);
-      googletag.pubads().addEventListener("slotRenderEnded", onRenderEnded);
-
-      state.killRewardedSlot = function cleanup() {
-        try {
-          googletag.pubads().removeEventListener("rewardedSlotReady", onReady);
-          googletag.pubads().removeEventListener("rewardedSlotGranted", onGranted);
-          googletag.pubads().removeEventListener("rewardedSlotClosed", onClosed);
-          googletag.pubads().removeEventListener("slotRenderEnded", onRenderEnded);
-          googletag.destroySlots([slot]);
-        } catch (e) { /* ignore */ }
-      };
-
-      googletag.pubads().enableSingleRequest();
-      googletag.enableServices();
-      googletag.display(slot);
-    } catch (err) {
-      console.warn("Rewarded ad error", err);
-      state.rewardedAdRequestActive = false;
-      showAdBlockerMessage();
-    }
-  });
-}
-/* Called ONLY from the genuine rewardedSlotGranted event. */
-function unlockAfterReward() {
-  state.tokensUsed = 0;
-  state.limitReached = false;
-  state.isLocked = false;
-  saveTokenState();
-  hideLock();
-  updateComposerState();
-  destroyRewardedSlot();
-  broadcastTokenSync();
-  showToast("You're all set — keep chatting!");
-}
-
-function showAdBlockerMessage() {
-  state.rewardedAdReady = false;
-  dom.watchAdBtn.disabled = true;
-  dom.watchAdBtn.textContent = "Watch Ad";
-  dom.lockError.textContent = ADBLOCKER_MSG;
-  dom.lockError.hidden = false;
-}
-
-function showAdProblem(msg) {
-  state.rewardedAdReady = false;
-  dom.watchAdBtn.disabled = true;
-  dom.lockError.textContent = msg;
-  dom.lockError.hidden = false;
-}
-
-/* "Watch Ad" — user opt-in. Shows the real Google rewarded ad via
-   the stored rewardedSlotReady event. No timers, no fake flows. */
-function onWatchAdClick() {
-  if (state.rewardedAdReady && state.rewardedAdEvent &&
-      typeof state.rewardedAdEvent.makeRewardedVisible === "function") {
-    dom.watchAdBtn.disabled = true;
-    try {
-      state.rewardedAdEvent.makeRewardedVisible();
-    } catch (err) {
-      console.warn("makeRewardedVisible failed", err);
-      showAdBlockerMessage();
-    }
-    return;
+  // Keep Close unavailable briefly so the display ad is visible first.
+  if (closeButton) {
+    closeButton.hidden = true;
+    window.setTimeout(() => {
+      closeButton.hidden = false;
+      closeButton.focus({ preventScroll: true });
+    }, 1500);
   }
-  // Ad not ready yet: request/prep it (single-flight guarded).
-  if (!state.rewardedAdRequestActive) {
-    dom.watchAdBtn.disabled = true;
-    dom.watchAdBtn.textContent = "Loading ad…";
-    prepareRewardedAd();
-  }
+
+  shell.scrollIntoView({ behavior: "smooth", block: "center" });
+  shell.classList.add("adsterra-ad-highlight");
+  window.setTimeout(() => shell.classList.remove("adsterra-ad-highlight"), 1500);
 }
 
 /* ==========================================================
@@ -1693,8 +1535,11 @@ function initEventListeners() {
   // Voice
   dom.micBtn.addEventListener("click", toggleVoice);
 
-  // Rewarded ad
-  dom.watchAdBtn.addEventListener("click", onWatchAdClick);
+  // Adsterra display ad
+  dom.openDisplayAdBtn.addEventListener("click", onOpenDisplayAdClick);
+  document.addEventListener("umrani:display-ad-closed", () => {
+    if (state.isLocked) showLock();
+  });
 
   // Scroll awareness (auto-scroll pause when reading up)
   dom.chatArea.addEventListener("scroll", markUserScroll);
@@ -1709,7 +1554,7 @@ function initEventListeners() {
    14. INITIALIZATION
    ----------------------------------------------------------
    Order: DOM -> IndexedDB -> token state -> chats -> restore
-   chat -> listeners -> voice -> GPT stub -> render.
+   chat -> listeners -> voice -> render.
    Any failure degrades gracefully with a friendly message.
    ========================================================== */
 async function init() {
@@ -1729,9 +1574,9 @@ async function init() {
   }
 
   initEventListeners();
+  initAdsterraCloseButton();
   initVoice();
   initBroadcastChannel();
-  initGptRewarded();
 
   renderChatList();
   renderActiveChat();

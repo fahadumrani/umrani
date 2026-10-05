@@ -2,9 +2,19 @@
 
 A lightweight vanilla JavaScript AI assistant for Urdu, Roman Urdu, and English.
 
-## Run locally
+## Architecture
 
-Because the app uses ES modules, serve the project over HTTP:
+- Static frontend: GitHub Pages / `umrani.devs.li`
+- AI providers: three Dahl browser-side API keys
+- Fallback order: primary account, fallback account 1, fallback account 2
+- Model order on every account: DeepSeek first, GLM 5.3 second
+- Allowance: persistent 10,000-token browser counter
+- Advertising: Adsterra display ad (not used as a token-reset signal)
+
+## Run the frontend locally
+
+The included `dist/app.bundle.js` also lets you open `index.html` directly by
+double-clicking it. For development, serving over HTTP is still recommended:
 
 ```bash
 python3 -m http.server 8080
@@ -28,4 +38,6 @@ npm test
 - `data/` — default model and app settings
 - `docs/` — architecture and API notes
 
-> API keys in a browser frontend are visible to users. Use a backend proxy for production secrets.
+> The requested API keys are stored in browser JavaScript. Every website
+> visitor can inspect and copy them. Clearing browser storage can also reset
+> the local token counter; a static frontend cannot prevent that.
