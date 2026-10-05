@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="Umrani — an intelligent AI assistant for Urdu, Roman Urdu and English." />
+  <title>Umrani</title>
+
+  <!--
+    Google Publisher Tag (GPT) — required ONLY for Google Ad Manager
+    Rewarded Ads for Web. This is the single allowed external script.
+    No network code / ad unit is hardcoded here; app.js configures the
+    rewarded slot using developer-supplied placeholder values.
+  -->
+  <script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js"></script>
+  <script>
+    window.googletag = window.googletag || { cmd: [] };
+  </script>
+
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237C3AED'/%3E%3Ctext x='16' y='22' font-size='16' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'%3EU%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside class="sidebar" id="sidebar" aria-label="Chat navigation">
+    <div class="sidebar-head">
+      <a class="brand" href="#" aria-label="Umrani home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
+            <path d="M19 15l.8 2 .2.5-.2.5-.8 2-.8-2-.2-.5.2-.5z"/>
+          </svg>
+        </span>
+        <span class="brand-name">Umrani</span>
+      </a>
+      <button class="icon-btn sidebar-close" id="sidebarClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <button class="new-chat-btn" id="newChatBtn">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      New Chat
+    </button>
+
+    <div class="search-wrap">
+      <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input type="search" id="searchChats" placeholder="Search chats" aria-label="Search chats" autocomplete="off" />
+    </div>
+
+    <nav class="chat-list" id="chatList" aria-label="Chat history">
+      <!-- Chat items rendered by app.js -->
+    </nav>
+  </aside>
+
+  <div class="overlay" id="overlay" hidden></div>
+  <!-- ======================= MAIN ======================= -->
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <span class="topbar-title">Umrani</span>
+      <span class="topbar-status" id="streamStatus" hidden>
+        <span class="dot" aria-hidden="true"></span> Generating…
+      </span>
+    </header>
+
+    <main class="chat-area" id="chatArea" aria-live="polite">
+      <div class="messages" id="messages"></div>
+
+      <!-- Empty / welcome state -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
+            <path d="M19 15l.8 2 .2.5-.2.5-.8 2-.8-2-.2-.5.2-.5z"/>
+          </svg>
+        </div>
+        <h1>Umrani</h1>
+        <p class="empty-sub">How can I help you today?</p>
+        <p class="empty-lang">Ask me anything.</p>
+      </div>
+    </main>
+
+    <!-- ======================= COMPOSER ======================= -->
+    <div class="composer-zone">
+      <div class="composer" id="composer">
+        <textarea id="messageInput" rows="1" placeholder="Ask anything…" aria-label="Message" maxlength="8000"></textarea>
+
+        <button class="icon-btn composer-mic" id="micBtn" aria-label="Voice input">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0014 0M12 19v3M8 22h8"/></svg>
+        </button>
+
+        <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+
+      <p class="composer-hint">Umrani can make mistakes. Check important info.</p>
+    </div>
+  </div>
+
+  <!-- ======================= ABOUT DEVELOPER =======================
+       Fixed top-right pill, visible on desktop and mobile
+       (icon-only on small screens). Exactly ONE developer button. -->
+  <a class="about-developer-top" id="aboutDeveloperBtn"
+     href="https://fahadumrani.devs.li/" target="_blank" rel="noopener noreferrer"
+     aria-label="About Developer" title="About Developer">
+    <span class="developer-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="4"/>
+        <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
+      </svg>
+    </span>
+    <span class="developer-label">About Developer</span>
+  </a>
+
+  <!-- ======================= AD LOCK OVERLAY ======================= -->
+  <div class="lock-overlay" id="lockOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+    <div class="lock-card">
+      <div class="lock-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
+        </svg>
+      </div>
+      <h2 id="lockTitle">Umrani</h2>
+      <p id="lockMsg">Your free usage is over</p>
+      <p class="lock-sub">Watch an ad to continue</p>
+      <button class="watch-ad-btn" id="watchAdBtn">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>
+        Watch Ad
+      </button>
+      <p class="lock-error" id="lockError" hidden></p>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="src/app.js?v=8"></script>
+</body>
+</html>

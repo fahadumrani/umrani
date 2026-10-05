@@ -1,0 +1,12 @@
+{
+  "name": "umrani",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Umrani AI assistant — vanilla JavaScript frontend",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test:syntax": "node --check src/main.js",
+    "test": "node --test $(find tests -name '*.test.mjs' -print)"
+  }
+}
