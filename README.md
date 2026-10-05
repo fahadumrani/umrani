@@ -10,6 +10,10 @@ A lightweight vanilla JavaScript AI assistant for Urdu, Roman Urdu, and English.
 - Model order on every account: DeepSeek first, GLM 5.3 second
 - No token or daily usage limit
 - Advertising: one Adsterra Social Bar break after every two complete chats
+- Pending ad breaks survive refresh and synchronize to other open tabs
+- The composer stays disabled until the user manually closes the available ad
+- If the Adsterra script/ad bait is blocked, Close stays unavailable until the
+  blocker is disabled and the page is refreshed
 
 ## Run the frontend locally
 

@@ -71,6 +71,9 @@
       <span class="adsterra-ad-label">Advertisement</span>
       <button class="adsterra-close-btn" id="adsterraCloseButton"
               type="button" aria-label="Close advertisement" title="Close advertisement">×</button>
+      <span class="adblock-warning" id="adBlockWarning" hidden>
+        Ad blocker detected. Disable it and refresh to support Umrani.
+      </span>
       <script>
         window.__umraniAdsterraStatus = "loading";
       </script>
@@ -130,32 +133,11 @@
     <span class="developer-label">About Developer</span>
   </a>
 
-  <!-- ======================= TWO-CHAT AD BREAK ==============================
-       After every two complete user-message + AI-reply cycles, this overlay and
-       the Adsterra shell appear. The close control becomes available after
-       0.5 seconds; there is no token limit or permanent AI lock. -->
-  <div class="lock-overlay" id="adBreakOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="adBreakTitle">
-    <div class="lock-card">
-      <div class="lock-logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
-        </svg>
-      </div>
-      <h2 id="adBreakTitle">Advertisement</h2>
-      <p id="adBreakMessage">Two chats completed.</p>
-      <p class="lock-sub">Please view this short ad break</p>
-      <p class="display-ad-note">Close becomes available after 0.5 seconds.</p>
-      <p class="adblock-warning" id="adBlockWarning" hidden>
-        Ad blocker detected. Disable it and refresh to support Umrani.
-      </p>
-    </div>
-  </div>
-
   <!-- Toast notifications -->
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=23"></script>
+  <script defer src="dist/app.bundle.js?v=25"></script>
 </body>
 </html>

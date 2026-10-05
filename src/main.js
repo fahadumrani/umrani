@@ -40,10 +40,7 @@ import {
   SEND_BUTTON_ELEMENT_ID, MIC_BUTTON_ELEMENT_ID
 } from "./ui/chat.js";
 import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
-import {
-  AD_BREAK_OVERLAY_ELEMENT_ID, AD_BREAK_MESSAGE_ELEMENT_ID,
-  AD_BLOCK_WARNING_ELEMENT_ID
-} from "./ui/modal.js";
+import { AD_BLOCK_WARNING_ELEMENT_ID } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
 import { initAdsterraCloseButton } from "./ui/ads.js";
 
@@ -84,8 +81,6 @@ function initDom() {
   dom.messageInput = document.getElementById(MESSAGE_INPUT_ELEMENT_ID);
   dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
-  dom.adBreakOverlay = document.getElementById(AD_BREAK_OVERLAY_ELEMENT_ID);
-  dom.adBreakMessage = document.getElementById(AD_BREAK_MESSAGE_ELEMENT_ID);
   dom.adBlockWarning = document.getElementById(AD_BLOCK_WARNING_ELEMENT_ID);
   dom.toast = document.getElementById(TOAST_ELEMENT_ID);
   dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
@@ -103,6 +98,9 @@ const state = {
   chats: [],              // cached chat summaries + full messages when active
   isStreaming: false,
   adBreakActive: false,
+  pendingAdBreak: false,
+  adCloseScheduled: false,
+  adCloseAllowedAt: 0,
   repliesSinceAd: 0,
   adBlockDetected: null,
   activeRequestChatId: null,
@@ -209,6 +207,7 @@ function showToast(message, ms = 2800) {
    The counter persists across refreshes in localStorage.
    ========================================================== */
 const AD_REPLY_COUNTER_KEY = "umrani-replies-since-ad";
+const AD_PENDING_KEY = "umrani-ad-pending";
 
 function loadAdReplyCounter() {
   try {
@@ -216,8 +215,10 @@ function loadAdReplyCounter() {
     state.repliesSinceAd = Number.isFinite(saved)
       ? Math.max(0, Math.min(1, Math.floor(saved)))
       : 0;
+    state.pendingAdBreak = localStorage.getItem(AD_PENDING_KEY) === "1";
   } catch {
     state.repliesSinceAd = 0;
+    state.pendingAdBreak = false;
   }
 }
 
@@ -229,12 +230,23 @@ function saveAdReplyCounter() {
   }
 }
 
+function savePendingAd(pending) {
+  state.pendingAdBreak = pending;
+  try {
+    if (pending) localStorage.setItem(AD_PENDING_KEY, "1");
+    else localStorage.removeItem(AD_PENDING_KEY);
+  } catch {
+    // In-memory enforcement remains active if storage is unavailable.
+  }
+}
+
 function recordSuccessfulReply() {
   state.repliesSinceAd += 1;
   if (state.repliesSinceAd >= 2) {
     state.repliesSinceAd = 0;
     saveAdReplyCounter();
-    showAdBreak();
+    savePendingAd(true);
+    // Insert the inline card only after the final chat re-render completes.
     return;
   }
   saveAdReplyCounter();
@@ -845,6 +857,10 @@ async function sendMessage() {
     showAdBreak();
     return;
   }
+  if (state.pendingAdBreak) {
+    showAdBreak();
+    return;
+  }
   if (!API_PROVIDERS.some(isProviderConfigured)) {
     showToast("Set your API URL, key, and model in the configuration module to start chatting.");
     return;
@@ -941,6 +957,10 @@ async function sendMessage() {
     renderChatList();
   }
   renderActiveChat();
+  if (state.pendingAdBreak) {
+    state.pendingAdBreak = false;
+    showAdBreak();
+  }
 }
 async function persistChat(chat) {
   // Guard: if this chat was deleted mid-request, do not write it back.
@@ -1288,8 +1308,8 @@ function updateStreamBubble() {
 /* ==========================================================
    10. TWO-CHAT AD BREAK UI
    ----------------------------------------------------------
-   The overlay appears after every two complete chat cycles.
-   The composer pauses only during the short ad break.
+   An inline ad card appears between messages after every two
+   complete chat cycles. No full-screen overlay is used.
    ========================================================== */
 function detectAdBlocker() {
   const bait = document.getElementById("adBlockBait");
@@ -1313,20 +1333,44 @@ function initAdBlockDetection() {
   window.setTimeout(() => {
     state.adBlockDetected = detectAdBlocker();
     updateAdBreakWarning();
+    if (state.adBreakActive) {
+      const closeButton = document.getElementById("adsterraCloseButton");
+      if (state.adBlockDetected) {
+        if (closeButton) closeButton.hidden = true;
+        state.adCloseAllowedAt = 0;
+      } else {
+        scheduleAdClose();
+      }
+    }
   }, 1800);
+}
+
+function scheduleAdClose() {
+  if (!state.adBreakActive ||
+      state.adBlockDetected !== false ||
+      state.adCloseScheduled) return;
+  const closeButton = document.getElementById("adsterraCloseButton");
+  const shell = document.getElementById("adsterraAdShell");
+  if (!closeButton || !shell) return;
+
+  state.adCloseScheduled = true;
+  state.adCloseAllowedAt = Date.now() + 500;
+  window.setTimeout(() => {
+    if (!state.adBreakActive || state.adBlockDetected) return;
+    closeButton.hidden = false;
+    closeButton.focus({ preventScroll: true });
+    shell.classList.remove("adsterra-ad-highlight");
+  }, 500);
 }
 
 function showAdBreak() {
   const wasActive = state.adBreakActive;
+  savePendingAd(true);
   state.adBreakActive = true;
   updateComposerState();
-  dom.adBreakOverlay.hidden = false;
-  if (dom.adBreakMessage) {
-    dom.adBreakMessage.textContent = "Two chats completed.";
-  }
   updateAdBreakWarning();
 
-  // Do not restart the 0.5-second close delay when the overlay is re-shown.
+  // Do not restart the 0.5-second close delay while this inline ad is active.
   if (wasActive) return;
 
   const shell = document.getElementById("adsterraAdShell");
@@ -1337,19 +1381,20 @@ function showAdBreak() {
     return;
   }
 
+  // Insert the reusable ad shell directly after the latest chat messages.
+  dom.messages.appendChild(shell);
   shell.hidden = false;
-  shell.classList.add("ad-break-mode", "adsterra-ad-highlight");
+  shell.classList.add("inline-ad-mode", "adsterra-ad-highlight");
   closeButton.hidden = true;
-  window.setTimeout(() => {
-    closeButton.hidden = false;
-    closeButton.focus({ preventScroll: true });
-    shell.classList.remove("adsterra-ad-highlight");
-  }, 500);
+  shell.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (state.adBlockDetected === false) scheduleAdClose();
 }
 
-function finishAdBreak() {
+function finishAdBreak(clearPending = true) {
   state.adBreakActive = false;
-  dom.adBreakOverlay.hidden = true;
+  state.adCloseScheduled = false;
+  state.adCloseAllowedAt = 0;
+  if (clearPending) savePendingAd(false);
   updateComposerState();
   dom.messageInput.focus();
 }
@@ -1489,7 +1534,26 @@ function initEventListeners() {
 
   // Closing the automatically shown ad ends only this short ad break.
   document.addEventListener("umrani:display-ad-closed", () => {
-    if (state.adBreakActive) finishAdBreak();
+    if (!state.adBreakActive) return;
+    const allowed = state.adBlockDetected === false &&
+      state.adCloseAllowedAt > 0 &&
+      Date.now() >= state.adCloseAllowedAt;
+    if (!allowed) {
+      // Ignore scripted/early closes and restore the required inline ad.
+      state.adBreakActive = false;
+      state.adCloseScheduled = false;
+      showAdBreak();
+      showToast("Please wait for the advertisement.");
+      return;
+    }
+    finishAdBreak();
+  });
+  // A pending ad created in another tab must also block this tab.
+  window.addEventListener("storage", (event) => {
+    if (event.key === AD_PENDING_KEY && event.newValue === "1") {
+      savePendingAd(true);
+      if (!state.adBreakActive) showAdBreak();
+    }
   });
 
   // Scroll awareness (auto-scroll pause when reading up)
@@ -1533,6 +1597,7 @@ async function init() {
   renderActiveChat();
   updateComposerState();
   autoGrowInput();
+  if (state.pendingAdBreak) showAdBreak();
 
 }
 

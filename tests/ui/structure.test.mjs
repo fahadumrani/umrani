@@ -5,13 +5,12 @@ import { readFile } from "node:fs/promises";
 test("HTML points to the modular Umrani entry point and favicon", async () => {
   const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
   assert.match(html, /styles\/main\.css/);
-  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=23"/);
+  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=25"/);
   assert.match(html, /text-anchor='middle'%3EU%3C\/text/);
   assert.match(html, /https:\/\/fahadumrani\.devs\.li\//);
   assert.match(html, /id="adsterraAdShell"/);
   assert.match(html, /id="adsterraCloseButton"/);
-  assert.match(html, /id="adBreakOverlay"/);
-  assert.match(html, /id="adBreakMessage"/);
+  assert.doesNotMatch(html, /id="adBreakOverlay"/);
   assert.match(html, /id="adBlockBait"/);
   assert.match(html, /id="adBlockWarning"/);
   assert.doesNotMatch(html, /securepubads\.g\.doubleclick\.net/);

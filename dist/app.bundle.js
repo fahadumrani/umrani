@@ -202,8 +202,6 @@
   var STREAM_MESSAGE_ELEMENT_ID = "streamMsg";
 
   // umrani-v9-adsterra-scan/bolanai/src/ui/modal.js
-  var AD_BREAK_OVERLAY_ELEMENT_ID = "adBreakOverlay";
-  var AD_BREAK_MESSAGE_ELEMENT_ID = "adBreakMessage";
   var AD_BLOCK_WARNING_ELEMENT_ID = "adBlockWarning";
 
   // umrani-v9-adsterra-scan/bolanai/src/ui/notifications.js
@@ -214,9 +212,14 @@
     const shell = document.getElementById("adsterraAdShell");
     const closeButton = document.getElementById("adsterraCloseButton");
     if (!shell || !closeButton) return;
+    const homeParent = shell.parentNode;
+    const homeNextSibling = shell.nextSibling;
     closeButton.addEventListener("click", () => {
       shell.hidden = true;
-      shell.classList.remove("ad-break-mode", "adsterra-ad-highlight");
+      shell.classList.remove("inline-ad-mode", "adsterra-ad-highlight");
+      if (homeParent && shell.parentNode !== homeParent) {
+        homeParent.insertBefore(shell, homeNextSibling);
+      }
       document.dispatchEvent(new CustomEvent("umrani:display-ad-closed"));
     });
   }
@@ -247,8 +250,6 @@
     dom.messageInput = document.getElementById(MESSAGE_INPUT_ELEMENT_ID);
     dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
     dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
-    dom.adBreakOverlay = document.getElementById(AD_BREAK_OVERLAY_ELEMENT_ID);
-    dom.adBreakMessage = document.getElementById(AD_BREAK_MESSAGE_ELEMENT_ID);
     dom.adBlockWarning = document.getElementById(AD_BLOCK_WARNING_ELEMENT_ID);
     dom.toast = document.getElementById(TOAST_ELEMENT_ID);
     dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
@@ -261,6 +262,9 @@
     // cached chat summaries + full messages when active
     isStreaming: false,
     adBreakActive: false,
+    pendingAdBreak: false,
+    adCloseScheduled: false,
+    adCloseAllowedAt: 0,
     repliesSinceAd: 0,
     adBlockDetected: null,
     activeRequestChatId: null,
@@ -346,12 +350,15 @@
     }, ms);
   }
   var AD_REPLY_COUNTER_KEY = "umrani-replies-since-ad";
+  var AD_PENDING_KEY = "umrani-ad-pending";
   function loadAdReplyCounter() {
     try {
       const saved = Number(localStorage.getItem(AD_REPLY_COUNTER_KEY));
       state.repliesSinceAd = Number.isFinite(saved) ? Math.max(0, Math.min(1, Math.floor(saved))) : 0;
+      state.pendingAdBreak = localStorage.getItem(AD_PENDING_KEY) === "1";
     } catch {
       state.repliesSinceAd = 0;
+      state.pendingAdBreak = false;
     }
   }
   function saveAdReplyCounter() {
@@ -360,12 +367,20 @@
     } catch {
     }
   }
+  function savePendingAd(pending) {
+    state.pendingAdBreak = pending;
+    try {
+      if (pending) localStorage.setItem(AD_PENDING_KEY, "1");
+      else localStorage.removeItem(AD_PENDING_KEY);
+    } catch {
+    }
+  }
   function recordSuccessfulReply() {
     state.repliesSinceAd += 1;
     if (state.repliesSinceAd >= 2) {
       state.repliesSinceAd = 0;
       saveAdReplyCounter();
-      showAdBreak();
+      savePendingAd(true);
       return;
     }
     saveAdReplyCounter();
@@ -873,6 +888,10 @@
       showAdBreak();
       return;
     }
+    if (state.pendingAdBreak) {
+      showAdBreak();
+      return;
+    }
     if (!API_PROVIDERS.some(isProviderConfigured)) {
       showToast("Set your API URL, key, and model in the configuration module to start chatting.");
       return;
@@ -944,6 +963,10 @@
       renderChatList();
     }
     renderActiveChat();
+    if (state.pendingAdBreak) {
+      state.pendingAdBreak = false;
+      showAdBreak();
+    }
   }
   async function persistChat(chat) {
     if (!getChat(chat.id)) return;
@@ -1241,16 +1264,36 @@
     window.setTimeout(() => {
       state.adBlockDetected = detectAdBlocker();
       updateAdBreakWarning();
+      if (state.adBreakActive) {
+        const closeButton = document.getElementById("adsterraCloseButton");
+        if (state.adBlockDetected) {
+          if (closeButton) closeButton.hidden = true;
+          state.adCloseAllowedAt = 0;
+        } else {
+          scheduleAdClose();
+        }
+      }
     }, 1800);
+  }
+  function scheduleAdClose() {
+    if (!state.adBreakActive || state.adBlockDetected !== false || state.adCloseScheduled) return;
+    const closeButton = document.getElementById("adsterraCloseButton");
+    const shell = document.getElementById("adsterraAdShell");
+    if (!closeButton || !shell) return;
+    state.adCloseScheduled = true;
+    state.adCloseAllowedAt = Date.now() + 500;
+    window.setTimeout(() => {
+      if (!state.adBreakActive || state.adBlockDetected) return;
+      closeButton.hidden = false;
+      closeButton.focus({ preventScroll: true });
+      shell.classList.remove("adsterra-ad-highlight");
+    }, 500);
   }
   function showAdBreak() {
     const wasActive = state.adBreakActive;
+    savePendingAd(true);
     state.adBreakActive = true;
     updateComposerState();
-    dom.adBreakOverlay.hidden = false;
-    if (dom.adBreakMessage) {
-      dom.adBreakMessage.textContent = "Two chats completed.";
-    }
     updateAdBreakWarning();
     if (wasActive) return;
     const shell = document.getElementById("adsterraAdShell");
@@ -1260,18 +1303,18 @@
       finishAdBreak();
       return;
     }
+    dom.messages.appendChild(shell);
     shell.hidden = false;
-    shell.classList.add("ad-break-mode", "adsterra-ad-highlight");
+    shell.classList.add("inline-ad-mode", "adsterra-ad-highlight");
     closeButton.hidden = true;
-    window.setTimeout(() => {
-      closeButton.hidden = false;
-      closeButton.focus({ preventScroll: true });
-      shell.classList.remove("adsterra-ad-highlight");
-    }, 500);
+    shell.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (state.adBlockDetected === false) scheduleAdClose();
   }
-  function finishAdBreak() {
+  function finishAdBreak(clearPending = true) {
     state.adBreakActive = false;
-    dom.adBreakOverlay.hidden = true;
+    state.adCloseScheduled = false;
+    state.adCloseAllowedAt = 0;
+    if (clearPending) savePendingAd(false);
     updateComposerState();
     dom.messageInput.focus();
   }
@@ -1383,7 +1426,22 @@
     });
     dom.micBtn.addEventListener("click", toggleVoice);
     document.addEventListener("umrani:display-ad-closed", () => {
-      if (state.adBreakActive) finishAdBreak();
+      if (!state.adBreakActive) return;
+      const allowed = state.adBlockDetected === false && state.adCloseAllowedAt > 0 && Date.now() >= state.adCloseAllowedAt;
+      if (!allowed) {
+        state.adBreakActive = false;
+        state.adCloseScheduled = false;
+        showAdBreak();
+        showToast("Please wait for the advertisement.");
+        return;
+      }
+      finishAdBreak();
+    });
+    window.addEventListener("storage", (event) => {
+      if (event.key === AD_PENDING_KEY && event.newValue === "1") {
+        savePendingAd(true);
+        if (!state.adBreakActive) showAdBreak();
+      }
     });
     dom.chatArea.addEventListener("scroll", markUserScroll);
     window.addEventListener("offline", () => showToast("You are offline. Please check your internet connection."));
@@ -1409,6 +1467,7 @@
     renderActiveChat();
     updateComposerState();
     autoGrowInput();
+    if (state.pendingAdBreak) showAdBreak();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
