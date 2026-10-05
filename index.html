@@ -67,7 +67,7 @@
     <!-- Ad blockers commonly hide elements with these standard ad classes.
          JavaScript combines this bait check with the Adsterra script status. -->
     <div class="adsbox ad-banner ad-placement" id="adBlockBait" aria-hidden="true"></div>
-    <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement">
+    <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement" hidden>
       <span class="adsterra-ad-label">Advertisement</span>
       <button class="adsterra-close-btn" id="adsterraCloseButton"
               type="button" aria-label="Close advertisement" title="Close advertisement">×</button>
@@ -130,27 +130,23 @@
     <span class="developer-label">About Developer</span>
   </a>
 
-  <!-- ======================= TOKEN-LIMIT / ADSTERRA OVERLAY =================
-       This dialog appears after the browser reaches its 10,000-token limit.
-       "Show Ad" takes the user to the existing Adsterra display ad.
-       There is no automatic browser-side token reset. -->
-  <div class="lock-overlay" id="lockOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <!-- ======================= TWO-CHAT AD BREAK ==============================
+       After every two complete user-message + AI-reply cycles, this overlay and
+       the Adsterra shell appear. The close control becomes available after
+       0.5 seconds; there is no token limit or permanent AI lock. -->
+  <div class="lock-overlay" id="adBreakOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="adBreakTitle">
     <div class="lock-card">
       <div class="lock-logo" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
         </svg>
       </div>
-      <h2 id="lockTitle">Umrani</h2>
-      <p id="lockMsg">Your 10,000 free tokens are finished</p>
-      <p class="lock-sub">You can still view our sponsor</p>
-      <!-- Opens/focuses the Adsterra display ad shown near the top of the app. -->
-      <button class="watch-ad-btn display-ad-btn" id="openDisplayAdBtn" type="button">
-        Show Ad
-      </button>
-      <p class="display-ad-note" id="tokenLimitInfo">This browser has reached its token limit.</p>
+      <h2 id="adBreakTitle">Advertisement</h2>
+      <p id="adBreakMessage">Two chats completed.</p>
+      <p class="lock-sub">Please view this short ad break</p>
+      <p class="display-ad-note">Close becomes available after 0.5 seconds.</p>
       <p class="adblock-warning" id="adBlockWarning" hidden>
-        Disable the ad blocker to use AI, then refresh this page.
+        Ad blocker detected. Disable it and refresh to support Umrani.
       </p>
     </div>
   </div>
@@ -160,6 +156,6 @@
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=19"></script>
+  <script defer src="dist/app.bundle.js?v=23"></script>
 </body>
 </html>

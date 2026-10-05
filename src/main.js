@@ -1,7 +1,7 @@
 /* ==========================================================
    Umrani — app.js
    Frontend-only AI chatbot. Vanilla JS. IndexedDB persistence.
-   Adsterra display ad with a persistent browser token allowance.
+   Adsterra display ad break after every two complete chat cycles.
    Sections:
      1. Configuration
      2. DOM references
@@ -12,18 +12,17 @@
      7. UI rendering
      8. Message handling
      9. API / streaming
-    10. Token state
-    11. Adsterra display ad
+    10. Two-chat ad breaks
     12. Voice input
     13. Event listeners
     14. Initialization
    ========================================================== */
 
 import {
-  API_PROVIDERS, APP_NAME, TOKEN_LIMIT,
+  API_PROVIDERS, APP_NAME,
   SYSTEM_PROMPT, REQUEST_TIMEOUT_MS
 } from "./config/config.js";
-import { makeId, isRtlText, estimateTokens } from "./utils/helpers.js";
+import { makeId, isRtlText } from "./utils/helpers.js";
 import { singleLine } from "./utils/formatter.js";
 import { makeTitle } from "./core/chat.js";
 import { MAX_CONTEXT_MESSAGES } from "./core/memory.js";
@@ -42,8 +41,7 @@ import {
 } from "./ui/chat.js";
 import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
 import {
-  LOCK_OVERLAY_ELEMENT_ID, OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID,
-  LOCK_MESSAGE_ELEMENT_ID, TOKEN_LIMIT_INFO_ELEMENT_ID,
+  AD_BREAK_OVERLAY_ELEMENT_ID, AD_BREAK_MESSAGE_ELEMENT_ID,
   AD_BLOCK_WARNING_ELEMENT_ID
 } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
@@ -86,10 +84,8 @@ function initDom() {
   dom.messageInput = document.getElementById(MESSAGE_INPUT_ELEMENT_ID);
   dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
-  dom.lockOverlay = document.getElementById(LOCK_OVERLAY_ELEMENT_ID);
-  dom.openDisplayAdBtn = document.getElementById(OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID);
-  dom.lockMsg = document.getElementById(LOCK_MESSAGE_ELEMENT_ID);
-  dom.tokenLimitInfo = document.getElementById(TOKEN_LIMIT_INFO_ELEMENT_ID);
+  dom.adBreakOverlay = document.getElementById(AD_BREAK_OVERLAY_ELEMENT_ID);
+  dom.adBreakMessage = document.getElementById(AD_BREAK_MESSAGE_ELEMENT_ID);
   dom.adBlockWarning = document.getElementById(AD_BLOCK_WARNING_ELEMENT_ID);
   dom.toast = document.getElementById(TOAST_ELEMENT_ID);
   dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
@@ -106,9 +102,8 @@ const state = {
   currentChatId: null,
   chats: [],              // cached chat summaries + full messages when active
   isStreaming: false,
-  isLocked: false,
-  tokensUsed: 0,
-  limitReached: false,
+  adBreakActive: false,
+  repliesSinceAd: 0,
   adBlockDetected: null,
   activeRequestChatId: null,
   controller: null,        // AbortController for current request
@@ -207,37 +202,42 @@ function showToast(message, ms = 2800) {
 }
 
 /* ==========================================================
-   10. PERSISTENT LOCAL TOKEN STATE
+   10. TWO-CHAT AD COUNTER
    ----------------------------------------------------------
-   The browser stores the 10,000-token allowance in IndexedDB.
-   There is no automatic time-based reset. Because this is a static
-   frontend, clearing browser storage can reset this local counter.
+   One chat cycle means one user message plus one successful AI reply.
+   After two cycles, reset the counter and display one Adsterra break.
+   The counter persists across refreshes in localStorage.
    ========================================================== */
-async function loadTokenState() {
+const AD_REPLY_COUNTER_KEY = "umrani-replies-since-ad";
+
+function loadAdReplyCounter() {
   try {
-    const rec = await dbGet(APP_STATE_STORE, "tokenState");
-    if (rec) {
-      state.tokensUsed = Math.max(0, Number(rec.tokensUsed) || 0);
-      state.limitReached = !!rec.limitReached;
-    }
-  } catch (err) {
-    console.warn("Failed to load token state", err);
+    const saved = Number(localStorage.getItem(AD_REPLY_COUNTER_KEY));
+    state.repliesSinceAd = Number.isFinite(saved)
+      ? Math.max(0, Math.min(1, Math.floor(saved)))
+      : 0;
+  } catch {
+    state.repliesSinceAd = 0;
   }
-  state.isLocked = state.limitReached;
-  if (state.isLocked) lockUI(true);
 }
 
-async function saveTokenState() {
+function saveAdReplyCounter() {
   try {
-    await dbPut(APP_STATE_STORE, {
-      key: "tokenState",
-      tokensUsed: state.tokensUsed,
-      limitReached: state.limitReached,
-      lastUpdated: Date.now()
-    });
-  } catch (err) {
-    console.warn("Failed to save token state", err);
+    localStorage.setItem(AD_REPLY_COUNTER_KEY, String(state.repliesSinceAd));
+  } catch {
+    // The in-memory counter still works when storage is unavailable.
   }
+}
+
+function recordSuccessfulReply() {
+  state.repliesSinceAd += 1;
+  if (state.repliesSinceAd >= 2) {
+    state.repliesSinceAd = 0;
+    saveAdReplyCounter();
+    showAdBreak();
+    return;
+  }
+  saveAdReplyCounter();
 }
 /* ==========================================================
    6. CHAT MANAGEMENT
@@ -805,13 +805,11 @@ function confirmDialog(message) {
 
 /* ---------- Composer enable/disable ---------- */
 function updateComposerState() {
-  const locked = state.isLocked || state.limitReached;
+  const locked = state.adBreakActive;
   // Typing stays possible while streaming; only SENDING is blocked
   // (prevents duplicate sends without freezing the composer).
   dom.messageInput.disabled = locked;
-  const lockedMessage = state.adBlockDetected
-    ? "Disable ad blocker to use AI"
-    : "Watch ad to continue";
+  const lockedMessage = "Advertisement — please wait";
   dom.messageInput.placeholder = locked ? lockedMessage : "Ask anything…";
   dom.messageInput.setAttribute(
     "aria-label",
@@ -843,8 +841,8 @@ async function sendMessage() {
     showToast("Please wait for the current reply to finish.");
     return;
   }
-  if (state.isLocked || state.limitReached) {
-    showLock();
+  if (state.adBreakActive) {
+    showAdBreak();
     return;
   }
   if (!API_PROVIDERS.some(isProviderConfigured)) {
@@ -915,37 +913,18 @@ async function sendMessage() {
     // saving or rendering the assistant message.
     const content = collapseRepeatedResponse(rawContent) ||
       cleanFinalResponse(rawContent) || rawContent;
-    const usageTotal = res.usageTotal;
     assistantMsg.content = content || "No response.";
     chat.updatedAt = Date.now();
     await persistChat(chat);
 
-    // Token accounting: use API usage when present, else estimate.
-    const added = (typeof usageTotal === "number") ? usageTotal : estimateTokens(content);
-    state.tokensUsed += added;
-    await saveTokenState();
-    if (state.tokensUsed >= TOKEN_LIMIT && !state.limitReached) {
-      state.limitReached = true;
-      state.isLocked = true;
-      await saveTokenState();
-      updateComposerState();
-      broadcastTokenSync();
-      showLock();
-    }
+    // Every second successful AI reply completes two chat cycles.
+    recordSuccessfulReply();
   } catch (err) {
     if (assistantMsg.content === "") {
       const idx = chat.messages.indexOf(assistantMsg);
       if (idx > -1) chat.messages.splice(idx, 1);
       chat.updatedAt = Date.now();
       await persistChat(chat);
-    }
-    if (err && err.code === "TOKEN_LIMIT_REACHED") {
-      state.tokensUsed = TOKEN_LIMIT;
-      state.limitReached = true;
-      state.isLocked = true;
-      await saveTokenState();
-      broadcastTokenSync();
-      showLock();
     }
     renderActiveChat();
     showFriendlyError(err);
@@ -1307,77 +1286,10 @@ function updateStreamBubble() {
 }
 
 /* ==========================================================
-   Lock UI (shown when the internal limit is reached)
+   10. TWO-CHAT AD BREAK UI
    ----------------------------------------------------------
-   The user can open the Adsterra display ad from this screen.
-   The local allowance has no automatic time-based reset.
-   ========================================================== */
-function lockUI(locked) {
-  state.isLocked = locked;
-  updateComposerState();
-}
-
-function showLock() {
-  // This modal has no dismiss action. Opening the display ad temporarily
-  // reveals the ad; closing it returns here while the token limit stays set.
-  dom.lockOverlay.hidden = false;
-  if (dom.tokenLimitInfo) {
-    dom.tokenLimitInfo.textContent = "This browser has reached its 10,000-token limit.";
-  }
-  updateLimitAdState();
-}
-
-function hideLock() {
-  dom.lockOverlay.hidden = true;
-  // unlock the composer for the next message
-  state.isLocked = false;
-  updateComposerState();
-  dom.messageInput.focus();
-}
-
-/* ==========================================================
-   Multi-tab token sync (BroadcastChannel, browser-native)
-   ----------------------------------------------------------
-   Keeps the daily allowance and lock state aligned across tabs.
-   ========================================================== */
-let bc = null;
-function initBroadcastChannel() {
-  if (!("BroadcastChannel" in window)) return;
-  try {
-    bc = new BroadcastChannel("umrani-token-state");
-    bc.onmessage = (e) => {
-      if (!e || !e.data) return;
-      if (e.data.type === "locked") {
-        state.limitReached = true;
-        state.isLocked = true;
-        lockUI(true);
-        showLock();
-      } else if (e.data.type === "unlocked") {
-        state.limitReached = false;
-        state.tokensUsed = 0;
-        state.isLocked = false;
-        hideLock();
-        updateComposerState();
-        saveTokenState();
-      }
-    };
-  } catch (err) {
-    bc = null;
-  }
-}
-
-function broadcastTokenSync() {
-  if (!bc) return;
-  try {
-    bc.postMessage({ type: state.limitReached ? "locked" : "unlocked" });
-  } catch (err) { /* ignore */ }
-}
-/* ==========================================================
-   11. ADSTERRA DISPLAY AD
-   ----------------------------------------------------------
-   The limit screen can reveal and focus the existing Adsterra
-   display ad. This display placement does not reset token usage.
-   The persistent browser counter decides whether requests can run.
+   The overlay appears after every two complete chat cycles.
+   The composer pauses only during the short ad break.
    ========================================================== */
 function detectAdBlocker() {
   const bait = document.getElementById("adBlockBait");
@@ -1392,66 +1304,54 @@ function detectAdBlocker() {
   return baitBlocked || scriptBlocked;
 }
 
-function updateLimitAdState() {
-  if (state.adBlockDetected === null) {
-    dom.openDisplayAdBtn.disabled = true;
-    dom.openDisplayAdBtn.textContent = "Checking ad…";
-    dom.adBlockWarning.hidden = true;
-    return;
-  }
-
-  dom.openDisplayAdBtn.disabled = state.adBlockDetected;
-  dom.openDisplayAdBtn.textContent = state.adBlockDetected
-    ? "Ad blocker detected"
-    : "Show Ad";
+function updateAdBreakWarning() {
+  if (!dom.adBlockWarning) return;
   dom.adBlockWarning.hidden = !state.adBlockDetected;
-  updateComposerState();
 }
 
 function initAdBlockDetection() {
-  // Give the third-party script time to load before deciding. A failed ad
-  // request can also mean a network/privacy blocker, so refresh is required.
   window.setTimeout(() => {
     state.adBlockDetected = detectAdBlocker();
-    updateLimitAdState();
+    updateAdBreakWarning();
   }, 1800);
 }
 
-/* OPEN ADSTERRA DISPLAY AD:
-   This button takes the user from the lock overlay to the Adsterra display
-   ad already present in index.html. It never simulates a click on the ad.
-   The ad's close control is shown after 1.5 seconds. Closing it returns the
-   user to the lock overlay, while the usage limit remains locked. */
-function onOpenDisplayAdClick() {
-  if (state.adBlockDetected) {
-    updateLimitAdState();
-    showToast("Disable the ad blocker, then refresh this page.");
-    return;
+function showAdBreak() {
+  const wasActive = state.adBreakActive;
+  state.adBreakActive = true;
+  updateComposerState();
+  dom.adBreakOverlay.hidden = false;
+  if (dom.adBreakMessage) {
+    dom.adBreakMessage.textContent = "Two chats completed.";
   }
+  updateAdBreakWarning();
+
+  // Do not restart the 0.5-second close delay when the overlay is re-shown.
+  if (wasActive) return;
+
   const shell = document.getElementById("adsterraAdShell");
   const closeButton = document.getElementById("adsterraCloseButton");
-  if (!shell) {
-    showToast("The display ad is not available.");
+  if (!shell || !closeButton) {
+    showToast("Advertisement is unavailable. You can continue chatting.");
+    finishAdBreak();
     return;
   }
 
   shell.hidden = false;
-  // Keep the token-limit overlay active. Raise only the ad shell above it,
-  // so the user cannot return to the disabled AI interface while viewing it.
-  dom.lockOverlay.hidden = false;
-  shell.classList.add("limit-ad-mode");
+  shell.classList.add("ad-break-mode", "adsterra-ad-highlight");
+  closeButton.hidden = true;
+  window.setTimeout(() => {
+    closeButton.hidden = false;
+    closeButton.focus({ preventScroll: true });
+    shell.classList.remove("adsterra-ad-highlight");
+  }, 500);
+}
 
-  // Keep Close unavailable briefly so the display ad is visible first.
-  if (closeButton) {
-    closeButton.hidden = true;
-    window.setTimeout(() => {
-      closeButton.hidden = false;
-      closeButton.focus({ preventScroll: true });
-    }, 1500);
-  }
-
-  shell.classList.add("adsterra-ad-highlight");
-  window.setTimeout(() => shell.classList.remove("adsterra-ad-highlight"), 1500);
+function finishAdBreak() {
+  state.adBreakActive = false;
+  dom.adBreakOverlay.hidden = true;
+  updateComposerState();
+  dom.messageInput.focus();
 }
 
 /* ==========================================================
@@ -1587,10 +1487,9 @@ function initEventListeners() {
   // Voice
   dom.micBtn.addEventListener("click", toggleVoice);
 
-  // Adsterra display ad
-  dom.openDisplayAdBtn.addEventListener("click", onOpenDisplayAdClick);
+  // Closing the automatically shown ad ends only this short ad break.
   document.addEventListener("umrani:display-ad-closed", () => {
-    if (state.isLocked) showLock();
+    if (state.adBreakActive) finishAdBreak();
   });
 
   // Scroll awareness (auto-scroll pause when reading up)
@@ -1611,6 +1510,7 @@ function initEventListeners() {
    ========================================================== */
 async function init() {
   initDom();
+  loadAdReplyCounter();
 
   try {
     await openDB();
@@ -1620,7 +1520,6 @@ async function init() {
   }
 
   if (state.dbReady) {
-    await loadTokenState();   // restores lock state across refresh
     await loadChats();
     await restoreLastChat();
   }
@@ -1629,16 +1528,12 @@ async function init() {
   initAdsterraCloseButton();
   initAdBlockDetection();
   initVoice();
-  initBroadcastChannel();
 
   renderChatList();
   renderActiveChat();
   updateComposerState();
   autoGrowInput();
 
-  if (state.isLocked || state.limitReached) {
-    showLock();
-  }
 }
 
 if (document.readyState === "loading") {

@@ -8,8 +8,8 @@ A lightweight vanilla JavaScript AI assistant for Urdu, Roman Urdu, and English.
 - AI providers: three Dahl browser-side API keys
 - Fallback order: primary account, fallback account 1, fallback account 2
 - Model order on every account: DeepSeek first, GLM 5.3 second
-- Allowance: persistent 10,000-token browser counter
-- Advertising: Adsterra display ad (not used as a token-reset signal)
+- No token or daily usage limit
+- Advertising: one Adsterra Social Bar break after every two complete chats
 
 ## Run the frontend locally
 
@@ -39,5 +39,5 @@ npm test
 - `docs/` — architecture and API notes
 
 > The requested API keys are stored in browser JavaScript. Every website
-> visitor can inspect and copy them. Clearing browser storage can also reset
-> the local token counter; a static frontend cannot prevent that.
+> visitor can inspect and copy them. A static frontend cannot protect embedded
+> API keys.

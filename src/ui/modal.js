@@ -1,5 +1,3 @@
-export const LOCK_OVERLAY_ELEMENT_ID = "lockOverlay";
-export const OPEN_DISPLAY_AD_BUTTON_ELEMENT_ID = "openDisplayAdBtn";
-export const LOCK_MESSAGE_ELEMENT_ID = "lockMsg";
-export const TOKEN_LIMIT_INFO_ELEMENT_ID = "tokenLimitInfo";
+export const AD_BREAK_OVERLAY_ELEMENT_ID = "adBreakOverlay";
+export const AD_BREAK_MESSAGE_ELEMENT_ID = "adBreakMessage";
 export const AD_BLOCK_WARNING_ELEMENT_ID = "adBlockWarning";

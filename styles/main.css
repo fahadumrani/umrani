@@ -289,8 +289,8 @@ input, textarea { font-family: inherit; }
   gap: 6px;
   max-width: min(96vw, 420px);
 }
-.adsterra-ad-shell.limit-ad-mode {
-  /* Above the token-limit overlay (100), while the AI stays locked below. */
+.adsterra-ad-shell.ad-break-mode {
+  /* Above the ad-break overlay (100), while the composer pauses below. */
   z-index: 130;
   right: 24px;
   bottom: 96px;

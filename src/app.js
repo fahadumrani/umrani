@@ -1,2 +1,2 @@
 /* Umrani application entry point. */
-import "./main.js?v=19";
+import "./main.js?v=23";
