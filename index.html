@@ -6,6 +6,9 @@
   <meta name="description" content="Umrani — an intelligent AI assistant for Urdu, Roman Urdu and English." />
   <title>Umrani</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles/main.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237C3AED'/%3E%3Ctext x='16' y='22' font-size='16' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'%3EU%3C/text%3E%3C/svg%3E" />
 </head>
@@ -16,25 +19,25 @@
     <div class="sidebar-head">
       <a class="brand" href="#" aria-label="Umrani home">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
-            <path d="M19 15l.8 2 .2.5-.2.5-.8 2-.8-2-.2-.5.2-.5z"/>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 3-1.3 4.1a5.2 5.2 0 0 1-3.6 3.6L3 12l4.1 1.3a5.2 5.2 0 0 1 3.6 3.6L12 21l1.3-4.1a5.2 5.2 0 0 1 3.6-3.6L21 12l-4.1-1.3a5.2 5.2 0 0 1-3.6-3.6L12 3Z"/>
+            <path d="m19 3-.35 1.15a1.75 1.75 0 0 1-1.15 1.15L16.35 5.65l1.15.35a1.75 1.75 0 0 1 1.15 1.15L19 8.3l.35-1.15A1.75 1.75 0 0 1 20.5 6l1.15-.35-1.15-.35a1.75 1.75 0 0 1-1.15-1.15L19 3Z"/>
           </svg>
         </span>
         <span class="brand-name">Umrani</span>
       </a>
       <button class="icon-btn sidebar-close" id="sidebarClose" aria-label="Close menu">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m18 6-12 12M6 6l12 12"/></svg>
       </button>
     </div>
 
     <button class="new-chat-btn" id="newChatBtn">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       New Chat
     </button>
 
     <div class="search-wrap">
-      <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
       <input type="search" id="searchChats" placeholder="Search chats" aria-label="Search chats" autocomplete="off" />
     </div>
 
@@ -48,7 +51,7 @@
   <div class="main">
     <header class="topbar">
       <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
       <span class="topbar-title">Umrani</span>
       <span class="topbar-status" id="streamStatus" hidden>
@@ -67,9 +70,10 @@
     <!-- Ad blockers commonly hide elements with these standard ad classes.
          JavaScript combines this bait check with the Adsterra script status. -->
     <div class="adsbox ad-banner ad-placement" id="adBlockBait" aria-hidden="true"></div>
-    <!-- Social Bar remains active for Adsterra's notification-style ads. -->
-    <script id="adsterraSocialBarScript" data-cfasync="false"
-            src="https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8"></script>
+    <!--
+      Social Bar is loaded once by src/main.js on desktop and mobile.
+      The separate Native Banner remains inside the chat feed.
+    -->
 
     <!-- Native Banner is the format that can render inside the chat feed. -->
     <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement" hidden>
@@ -77,7 +81,7 @@
       <button class="adsterra-close-btn" id="adsterraCloseButton"
               type="button" aria-label="Close advertisement" title="Close advertisement">×</button>
       <span class="adblock-warning" id="adBlockWarning" hidden>
-        Ad blocker detected. Disable it and refresh to support Umrani.
+        The ad request was blocked. Disable any ad/privacy blocker and refresh.
       </span>
       <script>
         window.__umraniAdsterraStatus = "loading";
@@ -88,6 +92,10 @@
               src="https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3"></script>
       <div class="native-ad-container"
            id="container-63ea484e1a293480518c8d527b5e81e3"></div>
+      <!-- Smartlink is user-initiated and shown on desktop only. -->
+      <a class="desktop-smartlink" id="desktopSmartlink"
+         href="https://araplhn.org/4/1a6d91f12807017d4ca192e215b57599"
+         target="_blank" rel="noopener noreferrer sponsored">Open sponsored link</a>
     </section>
 
     <main class="chat-area" id="chatArea" aria-live="polite">
@@ -96,9 +104,8 @@
       <!-- Empty / welcome state -->
       <div class="empty-state" id="emptyState">
         <div class="empty-logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
-            <path d="M19 15l.8 2 .2.5-.2.5-.8 2-.8-2-.2-.5.2-.5z"/>
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 3-1.3 4.1a5.2 5.2 0 0 1-3.6 3.6L3 12l4.1 1.3a5.2 5.2 0 0 1 3.6 3.6L12 21l1.3-4.1a5.2 5.2 0 0 1 3.6-3.6L21 12l-4.1-1.3a5.2 5.2 0 0 1-3.6-3.6L12 3Z"/>
           </svg>
         </div>
         <h1>Umrani</h1>
@@ -109,15 +116,29 @@
 
     <!-- ======================= COMPOSER ======================= -->
     <div class="composer-zone">
+      <div class="attachment-bar" id="attachmentBar" hidden>
+        <span class="attachment-name" id="attachmentName"></span>
+        <button class="attachment-remove" id="attachmentRemoveBtn"
+                type="button" aria-label="Remove attached file">×</button>
+      </div>
       <div class="composer" id="composer">
+        <input id="fileInput" type="file" hidden
+               accept=".txt,.md,.markdown,.csv,.json,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.java,.c,.h,.cpp,.cc,.cxx,.hpp,.cs,.php,.rb,.go,.rs,.swift,.kt,.kts,.sql,.sh,.bash,.ps1,.yml,.yaml,.svg,.vue,.svelte,.dart,.lua,.pl,.r,.ini,.toml,.log,text/*,application/json,application/xml" />
+        <button class="icon-btn composer-attach" id="attachBtn"
+                type="button" aria-label="Attach text or code file" title="Attach text or code file">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none"
+               stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m21.4 11.6-8.9 8.9A6 6 0 0 1 4 12l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 0 1-2.8-2.8L15.8 6"/>
+          </svg>
+        </button>
         <textarea id="messageInput" rows="1" placeholder="Ask anything…" aria-label="Message" maxlength="8000"></textarea>
 
         <button class="icon-btn composer-mic" id="micBtn" aria-label="Voice input">
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0014 0M12 19v3M8 22h8"/></svg>
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7"/></svg>
         </button>
 
         <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7M12 5v14"/></svg>
         </button>
       </div>
 
@@ -132,9 +153,9 @@
      href="https://fahadumrani.devs.li/" target="_blank" rel="noopener noreferrer"
      aria-label="About Developer" title="About Developer">
     <span class="developer-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="8" r="4"/>
-        <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="3.5"/>
+        <path d="M5 20c.7-3.5 3.2-5.5 7-5.5s6.3 2 7 5.5"/>
       </svg>
     </span>
     <span class="developer-label">About Developer</span>
@@ -145,6 +166,6 @@
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=26"></script>
+  <script defer src="dist/app.bundle.js?v=35"></script>
 </body>
 </html>
