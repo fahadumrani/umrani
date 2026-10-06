@@ -85,7 +85,7 @@
 
   // src/utils/formatter.js
   function singleLine(value) {
-    return String(value ?? "").replace(/\s+/g, " ").trim();
+    return String(value != null ? value : "").replace(/\s+/g, " ").trim();
   }
 
   // src/core/chat.js
@@ -272,7 +272,7 @@
     });
   }
 
-  // src/main.js
+  // src/main.js?v=39
   function getProviderModels(provider) {
     if (!provider || !Array.isArray(provider.models)) return [];
     return provider.models.filter((model) => typeof model === "string" && !model.startsWith("YOUR_"));
@@ -329,13 +329,26 @@
   var POPUNDER_SRC = "https://abscloud.org/1/1082f6d1e3a685e366e87a1a8c047da9";
   var NATIVE_BANNER_SRC = "https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3";
   var DESKTOP_AD_MIN_WIDTH = 901;
+  function isAdBlockBaitHidden() {
+    const bait = document.getElementById("adBlockBait");
+    if (!bait) return false;
+    const style = window.getComputedStyle(bait);
+    return style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 || bait.offsetWidth === 0 || bait.offsetHeight === 0;
+  }
   function loadSocialBar() {
     if (document.getElementById("adsterraSocialBarScript")) return;
+    window.__umraniSocialBarStatus = "loading";
     const script = document.createElement("script");
     script.id = "adsterraSocialBarScript";
     script.async = true;
     script.dataset.cfasync = "false";
     script.src = SOCIAL_BAR_SRC;
+    script.onload = () => {
+      window.__umraniSocialBarStatus = "loaded";
+    };
+    script.onerror = () => {
+      window.__umraniSocialBarStatus = "error";
+    };
     document.head.appendChild(script);
   }
   function loadDesktopPopunder() {
@@ -377,12 +390,16 @@
       scheduleAdClose();
     };
     script.onerror = () => {
-      window.__umraniAdsterraStatus = "error";
-      state.adBlockDetected = true;
-      state.adCloseAllowedAt = 0;
+      window.__umraniAdsterraStatus = "unavailable";
+      state.adBlockDetected = window.__umraniSocialBarStatus === "error" && isAdBlockBaitHidden();
       updateAdBreakWarning();
-      const closeButton = document.getElementById("adsterraCloseButton");
-      if (closeButton) closeButton.hidden = true;
+      if (state.adBlockDetected) {
+        state.adCloseAllowedAt = 0;
+        const closeButton = document.getElementById("adsterraCloseButton");
+        if (closeButton) closeButton.hidden = true;
+      } else {
+        scheduleAdClose();
+      }
     };
     shell.insertBefore(script, container);
   }
@@ -471,7 +488,7 @@
       const saved = Number(localStorage.getItem(AD_REPLY_COUNTER_KEY));
       state.repliesSinceAd = Number.isFinite(saved) ? Math.max(0, Math.min(1, Math.floor(saved))) : 0;
       state.pendingAdBreak = localStorage.getItem(AD_PENDING_KEY) === "1";
-    } catch {
+    } catch (e) {
       state.repliesSinceAd = 0;
       state.pendingAdBreak = false;
     }
@@ -479,7 +496,7 @@
   function saveAdReplyCounter() {
     try {
       localStorage.setItem(AD_REPLY_COUNTER_KEY, String(state.repliesSinceAd));
-    } catch {
+    } catch (e) {
     }
   }
   function savePendingAd(pending) {
@@ -487,7 +504,7 @@
     try {
       if (pending) localStorage.setItem(AD_PENDING_KEY, "1");
       else localStorage.removeItem(AD_PENDING_KEY);
-    } catch {
+    } catch (e) {
     }
   }
   function recordSuccessfulReply() {
@@ -643,9 +660,11 @@
   function renderActiveChat() {
     const chat = getChat(state.currentChatId);
     const msgsEl = dom.messages;
+    const activeAdShell = state.adBreakActive ? document.getElementById("adsterraAdShell") : null;
     msgsEl.textContent = "";
     if (!chat) {
       dom.emptyState.hidden = false;
+      if (activeAdShell) msgsEl.appendChild(activeAdShell);
       return;
     }
     dom.emptyState.hidden = true;
@@ -656,6 +675,7 @@
       frag.appendChild(buildMessageEl(m));
     }
     msgsEl.appendChild(frag);
+    if (activeAdShell) msgsEl.appendChild(activeAdShell);
     scrollToBottom(false);
   }
   function buildMessageEl(msg) {
@@ -1221,7 +1241,7 @@ ${attachment.content}${note}
   }
   async function sendMessage() {
     const raw = dom.messageInput.value;
-    const text = singleLine(raw);
+    const text = raw.trim();
     const attachment = state.pendingAttachment ? { ...state.pendingAttachment } : null;
     if (!text && !attachment) {
       showToast("Please type a message or attach a text/code file.");
@@ -1396,6 +1416,7 @@ ${attachment.content}${note}
         signal: controller.signal
       }).then(async (res) => {
         if (!res.ok) {
+          clearTimeout(timeout);
           let status = res.status;
           try {
             const j = await res.json().catch(() => null);
@@ -1431,6 +1452,7 @@ ${attachment.content}${note}
         let content = "";
         let usageTotal = null;
         let settled = false;
+        let doneSignal = false;
         let lastRepCheckLen = 0;
         const onParsed = function(delta, usage) {
           if (settled) return;
@@ -1480,13 +1502,18 @@ ${attachment.content}${note}
                 if (!line || !line.startsWith("data:")) continue;
                 const payload = line.slice(5).trim();
                 if (payload === "[DONE]") {
-                  continue;
+                  doneSignal = true;
+                  buf = "";
+                  break;
                 }
                 parseChunk(payload, onParsed);
               }
-              if (settled || buf.indexOf("[DONE]") !== -1) {
-                buf = "";
-                break;
+              if (settled || doneSignal) break;
+            }
+            if (doneSignal) {
+              try {
+                await reader.cancel();
+              } catch (e) {
               }
             }
             if (!settled && buf.trim()) {

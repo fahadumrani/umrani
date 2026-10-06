@@ -23,7 +23,6 @@ import {
   SYSTEM_PROMPT, REQUEST_TIMEOUT_MS
 } from "./config/config.js";
 import { makeId, isRtlText } from "./utils/helpers.js";
-import { singleLine } from "./utils/formatter.js";
 import { makeTitle } from "./core/chat.js";
 import { MAX_CONTEXT_MESSAGES } from "./core/memory.js";
 import { STORAGE_DATABASE } from "./core/storage.js";
@@ -120,15 +119,31 @@ const POPUNDER_SRC = "https://abscloud.org/1/1082f6d1e3a685e366e87a1a8c047da9";
 const NATIVE_BANNER_SRC = "https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3";
 const DESKTOP_AD_MIN_WIDTH = 901;
 
+// A network error alone is not proof of ad blocking. A real blocker commonly
+// blocks the request AND cosmetically hides this standard ad-bait element.
+function isAdBlockBaitHidden() {
+  const bait = document.getElementById("adBlockBait");
+  if (!bait) return false;
+  const style = window.getComputedStyle(bait);
+  return style.display === "none" ||
+    style.visibility === "hidden" ||
+    Number(style.opacity) === 0 ||
+    bait.offsetWidth === 0 ||
+    bait.offsetHeight === 0;
+}
+
 // Load exactly one Social Bar script on desktop and mobile.
 function loadSocialBar() {
   if (document.getElementById("adsterraSocialBarScript")) return;
 
+  window.__umraniSocialBarStatus = "loading";
   const script = document.createElement("script");
   script.id = "adsterraSocialBarScript";
   script.async = true;
   script.dataset.cfasync = "false";
   script.src = SOCIAL_BAR_SRC;
+  script.onload = () => { window.__umraniSocialBarStatus = "loaded"; };
+  script.onerror = () => { window.__umraniSocialBarStatus = "error"; };
   document.head.appendChild(script);
 }
 
@@ -176,17 +191,28 @@ function ensureNativeBannerLoaded() {
   script.src = NATIVE_BANNER_SRC;
   script.onload = () => {
     window.__umraniAdsterraStatus = "loaded";
+    // The real ad script loaded, so a cosmetically hidden bait by itself is
+    // not enough evidence to accuse the user of blocking ads.
     state.adBlockDetected = false;
     updateAdBreakWarning();
     scheduleAdClose();
   };
   script.onerror = () => {
-    window.__umraniAdsterraStatus = "error";
-    state.adBlockDetected = true;
-    state.adCloseAllowedAt = 0;
+    // Confirm blocking only when THREE independent signals agree:
+    // Native Banner failed, Social Bar also failed, and cosmetic bait is
+    // hidden. This avoids Chrome/Edge false positives from bait rules alone.
+    window.__umraniAdsterraStatus = "unavailable";
+    state.adBlockDetected =
+      window.__umraniSocialBarStatus === "error" &&
+      isAdBlockBaitHidden();
     updateAdBreakWarning();
-    const closeButton = document.getElementById("adsterraCloseButton");
-    if (closeButton) closeButton.hidden = true;
+    if (state.adBlockDetected) {
+      state.adCloseAllowedAt = 0;
+      const closeButton = document.getElementById("adsterraCloseButton");
+      if (closeButton) closeButton.hidden = true;
+    } else {
+      scheduleAdClose();
+    }
   };
   shell.insertBefore(script, container);
 }
@@ -512,10 +538,18 @@ async function restoreLastChat() {
 function renderActiveChat() {
   const chat = getChat(state.currentChatId);
   const msgsEl = dom.messages;
+  // The reusable ad shell is temporarily mounted inside the message feed.
+  // Keep the same DOM node alive across chat switches/re-renders; otherwise
+  // textContent="" removes the only visible close button while the composer
+  // remains locked.
+  const activeAdShell = state.adBreakActive
+    ? document.getElementById("adsterraAdShell")
+    : null;
   msgsEl.textContent = "";
 
   if (!chat) {
     dom.emptyState.hidden = false;
+    if (activeAdShell) msgsEl.appendChild(activeAdShell);
     return;
   }
   dom.emptyState.hidden = true;
@@ -527,6 +561,7 @@ function renderActiveChat() {
     frag.appendChild(buildMessageEl(m));
   }
   msgsEl.appendChild(frag);
+  if (activeAdShell) msgsEl.appendChild(activeAdShell);
   scrollToBottom(false);
 }
 
@@ -1092,7 +1127,9 @@ function updateComposerState() {
    ========================================================== */
 async function sendMessage() {
   const raw = dom.messageInput.value;
-  const text = singleLine(raw);
+  // Preserve intentional Shift+Enter line breaks in the actual message.
+  // makeTitle() already converts the sidebar title to one line.
+  const text = raw.trim();
   const attachment = state.pendingAttachment
     ? { ...state.pendingAttachment }
     : null;
@@ -1330,6 +1367,7 @@ function streamWithProvider(apiMessages, provider, model) {
     })
     .then(async (res) => {
       if (!res.ok) {
+        clearTimeout(timeout);
         let status = res.status;
         try {
           const j = await res.json().catch(() => null);
@@ -1367,6 +1405,7 @@ function streamWithProvider(apiMessages, provider, model) {
       let content = "";
       let usageTotal = null;
       let settled = false;      // true once this attempt has finished
+      let doneSignal = false;   // the SSE stream emitted data: [DONE]
       let lastRepCheckLen = 0;  // guard throttle: content length last checked
 
       // ONE callback for every parsed SSE payload — used by the mid-stream
@@ -1423,10 +1462,19 @@ function streamWithProvider(apiMessages, provider, model) {
               buf = buf.slice(nlIdx + 1);
               if (!line || !line.startsWith("data:")) continue;
               const payload = line.slice(5).trim();
-              if (payload === "[DONE]") { continue; }
+              if (payload === "[DONE]") {
+                doneSignal = true;
+                buf = "";
+                break;
+              }
               parseChunk(payload, onParsed);
             }
-            if (settled || buf.indexOf("[DONE]") !== -1) { buf = ""; break; }
+            if (settled || doneSignal) break;
+          }
+          // Some SSE servers keep the HTTP connection alive after [DONE].
+          // Stop reading immediately instead of waiting for a timeout.
+          if (doneSignal) {
+            try { await reader.cancel(); } catch (e) { /* already closed */ }
           }
           if (!settled && buf.trim()) {
             const payload = buf.trim().startsWith("data:") ? buf.trim().slice(5).trim() : buf.trim();

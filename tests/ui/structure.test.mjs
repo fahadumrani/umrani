@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 test("HTML points to the modular Umrani entry point and favicon", async () => {
   const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
   assert.match(html, /styles\/main\.css/);
-  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=36"/);
+  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=39"/);
   assert.match(html, /text-anchor='middle'%3EU%3C\/text/);
   assert.match(html, /https:\/\/fahadumrani\.devs\.li\//);
   assert.match(html, /id="adsterraAdShell"/);
@@ -50,6 +50,8 @@ test("loads one Social Bar script on desktop and mobile", async () => {
   const css = await readFile(new URL("../../styles/main.css", import.meta.url), "utf8");
   assert.match(main, /function loadSocialBar\(\)/);
   assert.match(main, /script\.id = "adsterraSocialBarScript"/);
+  assert.match(main, /__umraniSocialBarStatus = "loaded"/);
+  assert.match(main, /__umraniSocialBarStatus = "error"/);
   assert.match(main, /a67c4a1da3645718e3483de61514fbe8/);
   assert.doesNotMatch(main, /window\.innerWidth <= MOBILE_AD_MAX_WIDTH/);
   assert.match(css, /width: min\(100%, 320px\)/);
@@ -82,6 +84,33 @@ test("lazy-loads Native Banner only after the ad shell is visible", async () => 
   assert.doesNotMatch(main, /initAdBlockDetection\(\)/);
 });
 
+test("does not treat an unavailable or no-fill ad as an ad blocker", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  const errorHandler = main.slice(
+    main.indexOf("script.onerror = () => {"),
+    main.indexOf("shell.insertBefore(script, container)")
+  );
+  assert.match(errorHandler, /__umraniAdsterraStatus = "unavailable"/);
+  assert.match(errorHandler, /window\.__umraniSocialBarStatus === "error"/);
+  assert.match(errorHandler, /isAdBlockBaitHidden\(\)/);
+  assert.match(errorHandler, /scheduleAdClose\(\)/);
+  assert.match(main, /function isAdBlockBaitHidden\(\)/);
+  assert.match(main, /style\.display === "none"/);
+  assert.match(main, /bait\.offsetWidth === 0/);
+});
+
+test("keeps AI locked only when all independent ad-block signals agree", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  const errorHandler = main.slice(
+    main.indexOf("script.onerror = () => {", main.indexOf("function ensureNativeBannerLoaded")),
+    main.indexOf("shell.insertBefore(script, container)")
+  );
+  assert.match(errorHandler, /window\.__umraniSocialBarStatus === "error"/);
+  assert.match(errorHandler, /isAdBlockBaitHidden\(\)/);
+  assert.match(errorHandler, /if \(state\.adBlockDetected\)/);
+  assert.match(errorHandler, /state\.adCloseAllowedAt = 0/);
+});
+
 test("composer supports text and code file attachments", async () => {
   const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
   assert.match(main, /MAX_UPLOAD_BYTES = 200 \* 1024/);
@@ -98,4 +127,20 @@ test("code blocks include language-aware downloads", async () => {
   assert.match(main, /python: "py"/);
   assert.ok(main.includes("new Blob([code]"));
   assert.ok(main.includes("link.download = fileInfo.filename"));
+});
+
+test("preserves multiline messages and the active ad shell during re-renders", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  assert.match(main, /const text = raw\.trim\(\)/);
+  assert.doesNotMatch(main, /const text = singleLine\(raw\)/);
+  assert.match(main, /const activeAdShell = state\.adBreakActive/);
+  assert.match(main, /if \(activeAdShell\) msgsEl\.appendChild\(activeAdShell\)/);
+});
+
+test("finishes SSE streams immediately when the DONE sentinel arrives", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  assert.match(main, /let doneSignal = false/);
+  assert.match(main, /if \(payload === "\[DONE\]"\)/);
+  assert.match(main, /await reader\.cancel\(\)/);
+  assert.match(main, /if \(!res\.ok\) \{\s*clearTimeout\(timeout\)/);
 });
