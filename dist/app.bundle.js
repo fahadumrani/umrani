@@ -327,6 +327,7 @@
   };
   var SOCIAL_BAR_SRC = "https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8";
   var POPUNDER_SRC = "https://abscloud.org/1/1082f6d1e3a685e366e87a1a8c047da9";
+  var NATIVE_BANNER_SRC = "https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3";
   var DESKTOP_AD_MIN_WIDTH = 901;
   function loadSocialBar() {
     if (document.getElementById("adsterraSocialBarScript")) return;
@@ -346,6 +347,44 @@
     script.dataset.cfasync = "false";
     script.src = POPUNDER_SRC;
     document.head.appendChild(script);
+  }
+  function ensureNativeBannerLoaded() {
+    const shell = document.getElementById("adsterraAdShell");
+    const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
+    if (!shell || !container || shell.hidden) return;
+    const status = window.__umraniAdsterraStatus || "idle";
+    const oldScript = document.getElementById("adsterraNativeBannerScript");
+    if (status === "loaded") {
+      state.adBlockDetected = false;
+      updateAdBreakWarning();
+      scheduleAdClose();
+      return;
+    }
+    if (status === "loading") return;
+    if (oldScript) oldScript.remove();
+    state.adBlockDetected = null;
+    updateAdBreakWarning();
+    window.__umraniAdsterraStatus = "loading";
+    const script = document.createElement("script");
+    script.id = "adsterraNativeBannerScript";
+    script.async = true;
+    script.dataset.cfasync = "false";
+    script.src = NATIVE_BANNER_SRC;
+    script.onload = () => {
+      window.__umraniAdsterraStatus = "loaded";
+      state.adBlockDetected = false;
+      updateAdBreakWarning();
+      scheduleAdClose();
+    };
+    script.onerror = () => {
+      window.__umraniAdsterraStatus = "error";
+      state.adBlockDetected = true;
+      state.adCloseAllowedAt = 0;
+      updateAdBreakWarning();
+      const closeButton = document.getElementById("adsterraCloseButton");
+      if (closeButton) closeButton.hidden = true;
+    };
+    shell.insertBefore(script, container);
   }
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -1568,38 +1607,9 @@ ${attachment.content}${note}
     renderMarkdown(bubble, streamContent);
     scrollToBottom(false);
   }
-  function detectAdBlocker() {
-    const scriptStatus = window.__umraniAdsterraStatus;
-    if (scriptStatus === "error") return true;
-    if (scriptStatus === "loaded") return false;
-    return null;
-  }
   function updateAdBreakWarning() {
     if (!dom.adBlockWarning) return;
     dom.adBlockWarning.hidden = !state.adBlockDetected;
-  }
-  function initAdBlockDetection() {
-    let attempts = 0;
-    const check = () => {
-      attempts += 1;
-      const blocked = detectAdBlocker();
-      if (blocked === null && attempts < 8) {
-        window.setTimeout(check, 1e3);
-        return;
-      }
-      state.adBlockDetected = blocked === true;
-      updateAdBreakWarning();
-      if (state.adBreakActive) {
-        const closeButton = document.getElementById("adsterraCloseButton");
-        if (state.adBlockDetected) {
-          if (closeButton) closeButton.hidden = true;
-          state.adCloseAllowedAt = 0;
-        } else {
-          scheduleAdClose();
-        }
-      }
-    };
-    window.setTimeout(check, 1e3);
   }
   function scheduleAdClose() {
     if (!state.adBreakActive || state.adBlockDetected !== false || state.adCloseScheduled) return;
@@ -1634,7 +1644,9 @@ ${attachment.content}${note}
     shell.classList.add("inline-ad-mode", "adsterra-ad-highlight");
     closeButton.hidden = true;
     shell.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (state.adBlockDetected === false) scheduleAdClose();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(ensureNativeBannerLoaded);
+    });
   }
   function finishAdBreak(clearPending = true) {
     state.adBreakActive = false;
@@ -1796,7 +1808,6 @@ ${attachment.content}${note}
     }
     initEventListeners();
     initAdsterraCloseButton();
-    initAdBlockDetection();
     initVoice();
     renderChatList();
     renderActiveChat();

@@ -117,6 +117,7 @@ const state = {
 
 const SOCIAL_BAR_SRC = "https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8";
 const POPUNDER_SRC = "https://abscloud.org/1/1082f6d1e3a685e366e87a1a8c047da9";
+const NATIVE_BANNER_SRC = "https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3";
 const DESKTOP_AD_MIN_WIDTH = 901;
 
 // Load exactly one Social Bar script on desktop and mobile.
@@ -143,6 +144,51 @@ function loadDesktopPopunder() {
   script.dataset.cfasync = "false";
   script.src = POPUNDER_SRC;
   document.head.appendChild(script);
+}
+
+// Chrome can calculate a zero-width native widget when its script runs while
+// the parent has [hidden]. Load the official script only after the inline ad
+// shell is visible and has a real layout width.
+function ensureNativeBannerLoaded() {
+  const shell = document.getElementById("adsterraAdShell");
+  const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
+  if (!shell || !container || shell.hidden) return;
+
+  const status = window.__umraniAdsterraStatus || "idle";
+  const oldScript = document.getElementById("adsterraNativeBannerScript");
+  if (status === "loaded") {
+    state.adBlockDetected = false;
+    updateAdBreakWarning();
+    scheduleAdClose();
+    return;
+  }
+  if (status === "loading") return;
+  if (oldScript) oldScript.remove();
+
+  state.adBlockDetected = null;
+  updateAdBreakWarning();
+  window.__umraniAdsterraStatus = "loading";
+
+  const script = document.createElement("script");
+  script.id = "adsterraNativeBannerScript";
+  script.async = true;
+  script.dataset.cfasync = "false";
+  script.src = NATIVE_BANNER_SRC;
+  script.onload = () => {
+    window.__umraniAdsterraStatus = "loaded";
+    state.adBlockDetected = false;
+    updateAdBreakWarning();
+    scheduleAdClose();
+  };
+  script.onerror = () => {
+    window.__umraniAdsterraStatus = "error";
+    state.adBlockDetected = true;
+    state.adCloseAllowedAt = 0;
+    updateAdBreakWarning();
+    const closeButton = document.getElementById("adsterraCloseButton");
+    if (closeButton) closeButton.hidden = true;
+  };
+  shell.insertBefore(script, container);
 }
 
 /* ==========================================================
@@ -1534,46 +1580,9 @@ function updateStreamBubble() {
    An inline ad card appears between messages after every two
    complete chat cycles. No full-screen overlay is used.
    ========================================================== */
-function detectAdBlocker() {
-  const scriptStatus = window.__umraniAdsterraStatus;
-  // Only a confirmed request error counts as blocked. Chrome desktop can
-  // leave bait elements hidden or return an empty "no fill" container even
-  // when no ad blocker is installed.
-  if (scriptStatus === "error") return true;
-  if (scriptStatus === "loaded") return false;
-  return null; // request still loading
-}
-
 function updateAdBreakWarning() {
   if (!dom.adBlockWarning) return;
   dom.adBlockWarning.hidden = !state.adBlockDetected;
-}
-
-function initAdBlockDetection() {
-  let attempts = 0;
-  const check = () => {
-    attempts += 1;
-    const blocked = detectAdBlocker();
-    // Give desktop browsers and slower connections up to eight seconds.
-    if (blocked === null && attempts < 8) {
-      window.setTimeout(check, 1000);
-      return;
-    }
-    // A request that remains pending is treated as unavailable/no-fill,
-    // rather than falsely accusing the user of using an ad blocker.
-    state.adBlockDetected = blocked === true;
-    updateAdBreakWarning();
-    if (state.adBreakActive) {
-      const closeButton = document.getElementById("adsterraCloseButton");
-      if (state.adBlockDetected) {
-        if (closeButton) closeButton.hidden = true;
-        state.adCloseAllowedAt = 0;
-      } else {
-        scheduleAdClose();
-      }
-    }
-  };
-  window.setTimeout(check, 1000);
 }
 
 function scheduleAdClose() {
@@ -1618,7 +1627,11 @@ function showAdBreak() {
   shell.classList.add("inline-ad-mode", "adsterra-ad-highlight");
   closeButton.hidden = true;
   shell.scrollIntoView({ behavior: "smooth", block: "center" });
-  if (state.adBlockDetected === false) scheduleAdClose();
+  // Wait two paint frames so Chrome has measured the visible container
+  // before Adsterra builds its image/card layout.
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(ensureNativeBannerLoaded);
+  });
 }
 
 function finishAdBreak(clearPending = true) {
@@ -1830,7 +1843,6 @@ async function init() {
 
   initEventListeners();
   initAdsterraCloseButton();
-  initAdBlockDetection();
   initVoice();
 
   renderChatList();

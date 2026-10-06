@@ -84,12 +84,10 @@
         The ad request was blocked. Disable any ad/privacy blocker and refresh.
       </span>
       <script>
-        window.__umraniAdsterraStatus = "loading";
+        window.__umraniAdsterraStatus = "idle";
       </script>
-      <script id="adsterraNativeBannerScript" async="async" data-cfasync="false"
-              onload="window.__umraniAdsterraStatus='loaded'"
-              onerror="window.__umraniAdsterraStatus='error'"
-              src="https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3"></script>
+      <!-- Native Banner script is injected only after this shell is visible.
+           Loading it inside a hidden box can produce a blank ad in Chrome. -->
       <div class="native-ad-container"
            id="container-63ea484e1a293480518c8d527b5e81e3"></div>
       <!-- Smartlink is user-initiated and shown on desktop only. -->
@@ -166,6 +164,6 @@
 
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
-  <script defer src="dist/app.bundle.js?v=35"></script>
+  <script defer src="dist/app.bundle.js?v=36"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 test("HTML points to the modular Umrani entry point and favicon", async () => {
   const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
   assert.match(html, /styles\/main\.css/);
-  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=35"/);
+  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=36"/);
   assert.match(html, /text-anchor='middle'%3EU%3C\/text/);
   assert.match(html, /https:\/\/fahadumrani\.devs\.li\//);
   assert.match(html, /id="adsterraAdShell"/);
@@ -16,7 +16,7 @@ test("HTML points to the modular Umrani entry point and favicon", async () => {
   assert.match(html, /id="attachBtn"/);
   assert.match(html, /id="fileInput"/);
   assert.match(html, /id="attachmentBar"/);
-  assert.match(html, /bauval\.org\/21\/63ea484e1a293480518c8d527b5e81e3/);
+  assert.doesNotMatch(html, /src="https:\/\/bauval\.org\/21\/63ea484e1a293480518c8d527b5e81e3"/);
   assert.match(html, /container-63ea484e1a293480518c8d527b5e81e3/);
   assert.doesNotMatch(html, /securepubads\.g\.doubleclick\.net/);
   assert.doesNotMatch(html, /id="watchAdBtn"/);
@@ -61,7 +61,9 @@ test("uses four Adsterra formats on desktop", async () => {
   const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../../styles/main.css", import.meta.url), "utf8");
   // Native Banner + Smartlink in HTML.
-  assert.match(html, /id="adsterraNativeBannerScript"/);
+  assert.match(html, /id="container-63ea484e1a293480518c8d527b5e81e3"/);
+  assert.match(main, /const NATIVE_BANNER_SRC = "https:\/\/bauval\.org\/21\/63ea484e1a293480518c8d527b5e81e3"/);
+  assert.match(main, /function ensureNativeBannerLoaded\(\)/);
   assert.match(html, /id="desktopSmartlink"/);
   assert.match(html, /araplhn\.org\/4\/1a6d91f12807017d4ca192e215b57599/);
   // Social Bar + desktop-only Popunder are installed once from JavaScript.
@@ -70,6 +72,14 @@ test("uses four Adsterra formats on desktop", async () => {
   assert.match(main, /abscloud\.org\/1\/1082f6d1e3a685e366e87a1a8c047da9/);
   assert.match(main, /if \(window\.innerWidth < DESKTOP_AD_MIN_WIDTH\) return/);
   assert.match(css, /\.desktop-smartlink \{ display: none; \}/);
+});
+
+test("lazy-loads Native Banner only after the ad shell is visible", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  assert.match(main, /if \(!shell \|\| !container \|\| shell\.hidden\) return/);
+  assert.match(main, /shell\.insertBefore\(script, container\)/);
+  assert.match(main, /requestAnimationFrame\(ensureNativeBannerLoaded\)/);
+  assert.doesNotMatch(main, /initAdBlockDetection\(\)/);
 });
 
 test("composer supports text and code file attachments", async () => {
