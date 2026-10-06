@@ -1,6 +1,97 @@
 /* Pure streaming-response helpers used by the API layer. */
 
-export { classifyChunk, cleanFinalResponse, collapseRepeatedResponse, trimRunawayRepetition };
+export {
+  classifyChunk,
+  cleanFinalResponse,
+  collapseRepeatedResponse,
+  trimRunawayRepetition,
+  isProviderErrorContent,
+  filterThinkingContent
+};
+
+/* Some OpenAI-compatible gateways return capacity errors as a successful
+   HTTP/SSE text response instead of using an error status. Treat only
+   provider-specific notices as failures so the fallback chain can continue. */
+function isProviderErrorContent(text) {
+  const value = String(text || "").trim().toLowerCase();
+  if (!value) return false;
+  return /model is at concurrency capacity/.test(value) ||
+    /paid accounts? (?:are|is) admitted first/.test(value) ||
+    /top up at https?:\/\/inference\.dahl\.global\/account/.test(value) ||
+    /retry after retry-after/.test(value);
+}
+
+/* Remove private model-reasoning blocks from user-visible output. This also
+   handles an opening tag split across streaming chunks, so fragments such as
+   "<thi" never flash inside the chat bubble. */
+function filterThinkingContent(text) {
+  const source = String(text || "");
+  let visible = "";
+  let cursor = 0;
+  let hiddenTag = null;
+  let hadThinking = false;
+
+  const partialTagStart = (value) => {
+    const lower = value.toLowerCase();
+    const index = lower.lastIndexOf("<");
+    if (index < 0) return -1;
+    const fragment = lower.slice(index);
+    const tags = ["<think>", "<analysis>"];
+    if (tags.some((tag) => tag.startsWith(fragment))) return index;
+    if (/^<(?:think|analysis)(?:\s[^>]*)?$/.test(fragment)) return index;
+    return -1;
+  };
+
+  while (cursor < source.length) {
+    if (hiddenTag) {
+      const closePattern = new RegExp(`<\\/${hiddenTag}\\s*>`, "ig");
+      closePattern.lastIndex = cursor;
+      const close = closePattern.exec(source);
+      if (!close) {
+        return {
+          content: visible.replace(/^\s+/, ""),
+          thinking: true,
+          hadThinking: true
+        };
+      }
+      cursor = closePattern.lastIndex;
+      hiddenTag = null;
+      continue;
+    }
+
+    const openPattern = /<(think|analysis)(?:\s[^>]*)?>/ig;
+    openPattern.lastIndex = cursor;
+    const open = openPattern.exec(source);
+    if (open) {
+      visible += source.slice(cursor, open.index);
+      hiddenTag = open[1].toLowerCase();
+      hadThinking = true;
+      cursor = openPattern.lastIndex;
+      continue;
+    }
+
+    const remainder = source.slice(cursor);
+    const partial = partialTagStart(remainder);
+    if (partial >= 0) {
+      visible += remainder.slice(0, partial);
+      return {
+        content: visible.replace(/^\s+/, ""),
+        thinking: true,
+        hadThinking: true
+      };
+    }
+    visible += remainder;
+    break;
+  }
+
+  return {
+    content: visible
+      .replace(/<\/?(?:think|analysis)(?:\s[^>]*)?>/gi, "")
+      .replace(/^\s+/, ""),
+    thinking: Boolean(hiddenTag),
+    hadThinking
+  };
+}
 
 /* ---------- Chunk classifier (guards against duplicated replies) ----------
    Some proxies intermittently send CUMULATIVE text in each SSE event —

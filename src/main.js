@@ -22,13 +22,23 @@ import {
   API_PROVIDERS, APP_NAME,
   SYSTEM_PROMPT, REQUEST_TIMEOUT_MS
 } from "./config/config.js";
+import {
+  PRIMARY_MODEL, FALLBACK_MODEL, SECOND_FALLBACK_MODEL
+} from "./api/models.js";
 import { makeId, isRtlText } from "./utils/helpers.js";
 import { makeTitle } from "./core/chat.js";
 import { MAX_CONTEXT_MESSAGES } from "./core/memory.js";
 import { STORAGE_DATABASE } from "./core/storage.js";
 import { HISTORY_STORE, APP_STATE_STORE } from "./core/history.js";
 import { SYSTEM_ROLE, USER_ROLE, AI_ROLE } from "./core/ai.js";
-import { classifyChunk, cleanFinalResponse, collapseRepeatedResponse, trimRunawayRepetition } from "./api/client.js";
+import {
+  classifyChunk,
+  cleanFinalResponse,
+  collapseRepeatedResponse,
+  trimRunawayRepetition,
+  isProviderErrorContent,
+  filterThinkingContent
+} from "./api/client.js";
 import {
   SIDEBAR_ELEMENT_ID, SIDEBAR_CLOSE_ELEMENT_ID, MENU_BUTTON_ELEMENT_ID,
   NEW_CHAT_BUTTON_ELEMENT_ID, SEARCH_CHATS_ELEMENT_ID, CHAT_LIST_ELEMENT_ID
@@ -44,6 +54,29 @@ import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
 import { AD_BLOCK_WARNING_ELEMENT_ID } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
 import { initAdsterraCloseButton } from "./ui/ads.js";
+
+const HIGH_LOAD_MESSAGE = "Umrani AI is under high load. Please wait.";
+const MODEL_SELECTION_KEY = "umrani-selected-model";
+const GLM_AD_VIEWS_KEY = "umrani-glm-ad-views";
+const REQUIRED_GLM_AD_VIEWS = 4;
+const MODEL_HEALTH_INTERVAL_MS = 2 * 60 * 1000;
+const MODEL_OPTIONS = [
+  {
+    model: SECOND_FALLBACK_MODEL,
+    alias: "Umrani 2.0",
+    display: "Umrani 2.0"
+  },
+  {
+    model: PRIMARY_MODEL,
+    alias: "Umrani 2.1",
+    display: "Umrani 2.1"
+  },
+  {
+    model: FALLBACK_MODEL,
+    alias: "Umrani 2.2",
+    display: "Umrani 2.2"
+  }
+];
 
 function getProviderModels(provider) {
   if (!provider || !Array.isArray(provider.models)) return [];
@@ -79,6 +112,8 @@ function initDom() {
   dom.messages = document.getElementById(MESSAGES_ELEMENT_ID);
   dom.emptyState = document.getElementById(EMPTY_STATE_ELEMENT_ID);
   dom.streamStatus = document.getElementById(STREAM_STATUS_ELEMENT_ID);
+  dom.modelSelect = document.getElementById("modelSelect");
+  dom.modelHealth = document.getElementById("modelHealth");
   dom.messageInput = document.getElementById(MESSAGE_INPUT_ELEMENT_ID);
   dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
@@ -112,6 +147,12 @@ const state = {
   pendingAttachment: null,
   activeRequestChatId: null,
   controller: null,        // AbortController for current request
+  selectedModel: SECOND_FALLBACK_MODEL,
+  modelAvailability: Object.create(null),
+  modelHealthChecking: false,
+  lastModelHealthCheck: 0,
+  glmAdViews: 0,
+  glmUnlockFlow: false,
 };
 
 const SOCIAL_BAR_SRC = "https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8";
@@ -361,13 +402,237 @@ function recordSuccessfulReply() {
   }
   saveAdReplyCounter();
 }
+
+/* ==========================================================
+   MODEL SELECTION, HEALTH, AND UMRANI 2.2 ACCESS
+   ========================================================== */
+function modelOption(model) {
+  return MODEL_OPTIONS.find((item) => item.model === model) || MODEL_OPTIONS[0];
+}
+
+function isGlmUnlocked() {
+  return state.glmAdViews >= REQUIRED_GLM_AD_VIEWS;
+}
+
+function loadModelPreferences() {
+  try {
+    const views = Number(localStorage.getItem(GLM_AD_VIEWS_KEY));
+    state.glmAdViews = Number.isFinite(views)
+      ? Math.max(0, Math.min(REQUIRED_GLM_AD_VIEWS, Math.floor(views)))
+      : 0;
+    const saved = localStorage.getItem(MODEL_SELECTION_KEY);
+    const valid = MODEL_OPTIONS.some((item) => item.model === saved);
+    state.selectedModel = valid ? saved : SECOND_FALLBACK_MODEL;
+    if (state.selectedModel === FALLBACK_MODEL && !isGlmUnlocked()) {
+      state.selectedModel = SECOND_FALLBACK_MODEL;
+    }
+  } catch {
+    state.glmAdViews = 0;
+    state.selectedModel = SECOND_FALLBACK_MODEL;
+  }
+}
+
+function saveSelectedModel() {
+  try {
+    localStorage.setItem(MODEL_SELECTION_KEY, state.selectedModel);
+  } catch {
+    // The in-memory selection still works when storage is unavailable.
+  }
+}
+
+function modelHealthLabel(model) {
+  if (model === FALLBACK_MODEL && !isGlmUnlocked()) {
+    const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
+    return `${remaining} ad${remaining === 1 ? "" : "s"} to unlock`;
+  }
+  const availability = state.modelAvailability[model];
+  if (availability === true) return "Active";
+  if (availability === false) return "Model is under overload";
+  return "";
+}
+
+function updateModelUi() {
+  if (!dom.modelSelect || !dom.modelHealth) return;
+  const selected = state.selectedModel;
+  for (const optionEl of dom.modelSelect.options) {
+    const item = modelOption(optionEl.value);
+    optionEl.textContent = item.display;
+  }
+  dom.modelSelect.value = selected;
+  const label = modelHealthLabel(selected);
+  dom.modelHealth.textContent = label;
+  dom.modelHealth.className = "model-health";
+  if (label === "Active") dom.modelHealth.classList.add("active");
+  else if (label === "Model is under overload") dom.modelHealth.classList.add("overloaded");
+  else if (selected === FALLBACK_MODEL && !isGlmUnlocked()) {
+    dom.modelHealth.classList.add("locked");
+  }
+}
+
+function selectModel(model) {
+  if (!MODEL_OPTIONS.some((item) => item.model === model)) return;
+  state.selectedModel = model;
+  saveSelectedModel();
+  updateModelUi();
+}
+
+function prepareNextUnlockAd() {
+  const oldScript = document.getElementById("adsterraNativeBannerScript");
+  if (oldScript) oldScript.remove();
+  const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
+  if (container) container.textContent = "";
+  window.__umraniAdsterraStatus = "idle";
+  state.adBlockDetected = null;
+}
+
+function startGlmUnlockFlow() {
+  if (isGlmUnlocked()) {
+    selectModel(FALLBACK_MODEL);
+    return;
+  }
+  if (state.isStreaming) {
+    showToast("Please wait for the current reply to finish.");
+    updateModelUi();
+    return;
+  }
+  if (state.adBreakActive && !state.glmUnlockFlow) {
+    showToast("Close the current advertisement, then select Umrani 2.2 again.");
+    updateModelUi();
+    return;
+  }
+  state.glmUnlockFlow = true;
+  const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
+  showToast(`Watch ${remaining} more ad${remaining === 1 ? "" : "s"} to unlock Umrani 2.2.`);
+  showAdBreak();
+}
+
+function completeGlmUnlockAd() {
+  finishAdBreak();
+  state.glmAdViews = Math.min(REQUIRED_GLM_AD_VIEWS, state.glmAdViews + 1);
+  try {
+    localStorage.setItem(GLM_AD_VIEWS_KEY, String(state.glmAdViews));
+  } catch {
+    // Keep progress in memory if storage is unavailable.
+  }
+  updateModelUi();
+
+  const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
+  if (remaining <= 0) {
+    state.glmUnlockFlow = false;
+    selectModel(FALLBACK_MODEL);
+    showToast("Umrani 2.2 unlocked.");
+    return;
+  }
+
+  prepareNextUnlockAd();
+  showToast(`Ad completed. ${remaining} more to unlock Umrani 2.2.`);
+  window.setTimeout(() => {
+    if (state.glmUnlockFlow) showAdBreak();
+  }, 650);
+}
+
+function initModelSelector() {
+  if (!dom.modelSelect) return;
+  dom.modelSelect.textContent = "";
+  for (const item of MODEL_OPTIONS) {
+    const option = document.createElement("option");
+    option.value = item.model;
+    option.textContent = item.display;
+    dom.modelSelect.appendChild(option);
+  }
+  dom.modelSelect.addEventListener("change", () => {
+    const requested = dom.modelSelect.value;
+    if (state.isStreaming) {
+      showToast("Please wait for the current reply to finish.");
+      updateModelUi();
+      return;
+    }
+    if (requested === FALLBACK_MODEL && !isGlmUnlocked()) {
+      updateModelUi();
+      startGlmUnlockFlow();
+      return;
+    }
+    selectModel(requested);
+  });
+  updateModelUi();
+}
+
+async function probeModel(model) {
+  const provider = API_PROVIDERS.find(isProviderConfigured);
+  if (!provider || !getProviderModels(provider).includes(model)) return false;
+  const controller = new AbortController();
+  // Health status resolves within one second. No "Checking…" text is shown.
+  const timeout = window.setTimeout(() => controller.abort(), 1000);
+  try {
+    const res = await fetch(provider.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + provider.key
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: USER_ROLE, content: "Reply OK" }],
+        stream: false,
+        max_tokens: 1
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) return false;
+    const json = await res.json().catch(() => null);
+    if (!json || json.error) return false;
+    const content = json.choices && json.choices[0] && json.choices[0].message
+      ? json.choices[0].message.content
+      : "";
+    return !isProviderErrorContent(content);
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function checkModelHealth() {
+  if (state.modelHealthChecking || state.isStreaming || state.adBreakActive ||
+      document.hidden || !navigator.onLine) return;
+  state.modelHealthChecking = true;
+  updateModelUi();
+  try {
+    const results = await Promise.all(
+      MODEL_OPTIONS.map(async (item) => [item.model, await probeModel(item.model)])
+    );
+    for (const [model, available] of results) {
+      state.modelAvailability[model] = available;
+    }
+    state.lastModelHealthCheck = Date.now();
+    updateModelUi();
+  } finally {
+    state.modelHealthChecking = false;
+  }
+}
 /* ==========================================================
    6. CHAT MANAGEMENT
    ========================================================== */
 async function loadChats() {
   try {
     const all = await dbGetAll(HISTORY_STORE);
-    state.chats = (all || []).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const cleanedChats = [];
+    state.chats = (all || []).map((chat) => {
+      let changed = false;
+      const messages = (chat.messages || []).map((message) => {
+        if (message.role !== AI_ROLE) return message;
+        const cleanContent = filterThinkingContent(message.content).content;
+        if (cleanContent === String(message.content || "")) return message;
+        changed = true;
+        return { ...message, content: cleanContent };
+      });
+      if (!changed) return chat;
+      const cleaned = { ...chat, messages };
+      cleanedChats.push(cleaned);
+      return cleaned;
+    }).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    // Permanently remove reasoning that may have been saved by older builds.
+    await Promise.allSettled(cleanedChats.map((chat) => dbPut(HISTORY_STORE, chat)));
   } catch (err) {
     console.warn("Failed to load chats", err);
     state.chats = [];
@@ -575,13 +840,16 @@ function buildMessageEl(msg) {
     avatar.className = "avatar";
     avatar.setAttribute("aria-hidden", "true");
     avatar.innerHTML =
-      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.3 4.1a5.2 5.2 0 0 1-3.6 3.6L3 12l4.1 1.3a5.2 5.2 0 0 1 3.6 3.6L12 21l1.3-4.1a5.2 5.2 0 0 1 3.6-3.6L21 12l-4.1-1.3a5.2 5.2 0 0 1-3.6-3.6L12 3Z"/></svg>';
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6.5 5.5v6.4a5.5 5.5 0 0 0 11 0V5.5"/><path d="m19 3 .35 1.05 1.05.35-1.05.35L19 5.8l-.35-1.05-1.05-.35 1.05-.35L19 3Z" fill="currentColor" stroke="none"/></svg>';
     wrap.appendChild(avatar);
   }
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  const content = String(msg.content || "");
+  const rawContent = String(msg.content || "");
+  const content = msg.role === AI_ROLE
+    ? filterThinkingContent(rawContent).content
+    : rawContent;
   bubble.setAttribute("dir", isRtlText(content) ? "rtl" : "ltr");
 
   if (msg.role === USER_ROLE) {
@@ -1010,8 +1278,8 @@ function confirmDialog(message) {
   });
 }
 
-const MAX_UPLOAD_BYTES = 200 * 1024;
-const MAX_UPLOAD_CHARS = 60000;
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+const MAX_UPLOAD_CHARS = 3 * 1024 * 1024;
 const TEXT_FILE_EXTENSIONS = new Set([
   "txt", "md", "markdown", "csv", "json", "xml", "html", "htm", "css",
   "js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "java", "c", "h",
@@ -1067,7 +1335,7 @@ async function handleFileSelection(file) {
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     dom.fileInput.value = "";
-    showToast("File is too large. Maximum supported size is 200 KB.");
+    showToast("File is too large. Maximum supported size is 3 MB.");
     return;
   }
   try {
@@ -1082,7 +1350,7 @@ async function handleFileSelection(file) {
       truncated
     };
     updateAttachmentBar();
-    if (truncated) showToast("File was truncated to 60,000 characters.");
+    if (truncated) showToast("File was truncated to the 3 MB content limit.");
   } catch (err) {
     dom.fileInput.value = "";
     showToast("Could not read this file.");
@@ -1205,6 +1473,7 @@ async function sendMessage() {
   state.activeRequestChatId = chat.id;
   updateComposerState();
   showTyping();
+  setStreamStatus("Generating…");
   dom.streamStatus.hidden = false;
   beginStreamRender(chat.id);
 
@@ -1215,7 +1484,7 @@ async function sendMessage() {
     const role = m.role === USER_ROLE ? USER_ROLE : AI_ROLE;
     const content = role === USER_ROLE
       ? String(m.content || "") + attachmentForApi(m.attachment)
-      : m.content;
+      : filterThinkingContent(m.content).content;
     apiMessages.push({ role, content });
   }
 
@@ -1226,7 +1495,7 @@ async function sendMessage() {
     const res = await streamCompletion(apiMessages);
     // Final safety net: collapse any growing repeated stanzas so the saved
     // reply is a single clean response.
-    const rawContent = res.content || "";
+    const rawContent = filterThinkingContent(res.content || "").content;
     // A few OpenAI-compatible gateways have been observed returning the
     // complete answer three times in one successful stream.  That is not a
     // transport retry, so provider fallback cannot help; collapse it before
@@ -1285,67 +1554,61 @@ async function persistChat(chat) {
    "data:" lines, tolerates malformed chunks, stops at "[DONE]".
    ========================================================== */
 function mapApiError(status, providerName) {
-  // Simple, user-friendly message for every error — no technical detail.
-  if (status === 429) return "This AI provider is temporarily rate-limited.";
-  return "Server error. Please try again.";
+  // Never expose provider/account/model details to the user.
+  return HIGH_LOAD_MESSAGE;
 }
 
 function showFriendlyError(err) {
-  const msg = (err && err.userMessage) || "Server error. Please try again.";
-  showToast(msg, 5000);
+  showToast(HIGH_LOAD_MESSAGE, 5000);
   // Full details stay in the console for troubleshooting.
   console.debug("Request error:", err && err.message ? err.message : err, err);
 }
 
 function streamCompletion(apiMessages) {
-  // Immediate model fallback:
-  // DeepSeek gets ONE attempt. If it fails, switch directly to GLM;
-  // if GLM fails, switch directly to MiniMax. Only after all three
-  // models fail do we move to the next provider/account and repeat.
+  // The user chooses the model. If that model fails on one account,
+  // try the same selected model on each provider/account in order.
   const providers = API_PROVIDERS.filter(isProviderConfigured);
+  const model = state.selectedModel;
 
   return (async () => {
     let lastErr = null;
     const tried = [];
 
     for (const provider of providers) {
-      for (const model of getProviderModels(provider)) {
-        tried.push(provider.name + " / " + model);
+      if (!getProviderModels(provider).includes(model)) continue;
+      tried.push(provider.name + " / " + model);
 
-        // Start each attempt with a clean slate: discard any partial
-        // output the previous (failed) attempt left in the live bubble.
-        streamContent = "";
-        resetStreamBubble();
+      // Start each attempt with a clean slate: discard any partial
+      // output the previous (failed) attempt left in the live bubble.
+      streamContent = "";
+      resetStreamBubble();
 
-        try {
-          const result = await streamWithProvider(apiMessages, provider, model);
-          console.log("Umrani responded via provider '" + provider.name + "' (model '" + model + "').");
-          return result;
-        } catch (err) {
-          lastErr = err;
-          console.warn("Attempt '" + provider.name + "' / '" + model + "' failed; switching model:",
-            err && (err.message || err.userMessage) ? (err.message || err.userMessage) : err);
-        }
+      try {
+        const result = await streamWithProvider(apiMessages, provider, model);
+        state.modelAvailability[model] = true;
+        updateModelUi();
+        console.log("Umrani responded via provider '" + provider.name + "' (model '" + model + "').");
+        return result;
+      } catch (err) {
+        lastErr = err;
+        console.warn("Attempt '" + provider.name + "' / '" + model + "' failed; switching provider:",
+          err && (err.message || err.userMessage) ? (err.message || err.userMessage) : err);
       }
     }
 
-      // No attempts at all — nothing was configured properly.
-      if (tried.length === 0) {
-        throw { userMessage: "No AI provider is configured. Please set your API details in the configuration module." };
-      }
+    // No attempts at all — nothing was configured properly.
+    if (tried.length === 0) {
+      throw { userMessage: HIGH_LOAD_MESSAGE };
+    }
 
-      // Every provider AND every fallback model failed.
-      const detail = tried.join(" → ");
-      console.error("All AI attempts failed:", detail, lastErr);
-      const fail = new Error("All AI attempts failed (" + detail + ").");
-      // Surface the most actionable hint: the last failure's message,
-      // otherwise a clear generic one.
-      if (lastErr && lastErr.userMessage) {
-        fail.userMessage = lastErr.userMessage;
-      } else {
-        fail.userMessage = "All AI services are currently unavailable. Please try again in a moment.";
-      }
-      throw fail;
+    // The selected model failed on every configured provider.
+    state.modelAvailability[model] = false;
+    updateModelUi();
+    const detail = tried.join(" → ");
+    console.error("Selected model failed on all providers:", detail, lastErr);
+    const fail = new Error("Selected model failed on all providers (" + detail + ").");
+    fail.userMessage = HIGH_LOAD_MESSAGE;
+    throw fail;
   })();
 }
 
@@ -1373,7 +1636,8 @@ function streamWithProvider(apiMessages, provider, model) {
           const j = await res.json().catch(() => null);
           if (j && j.error && j.error.message) {
             reject({
-              userMessage: status === 429 ? j.error.message : mapApiError(status, provider.name),
+              userMessage: HIGH_LOAD_MESSAGE,
+              providerMessage: j.error.message,
               status,
               code: j.error.code || null
             });
@@ -1391,6 +1655,16 @@ function streamWithProvider(apiMessages, provider, model) {
             ? j.choices[0].message.content : "") || "";
           const usage = (j.usage && j.usage.total_tokens) || null;
           clearTimeout(timeout);
+          if ((j.error && (j.error.message || j.error)) ||
+              isProviderErrorContent(content)) {
+            reject({
+              userMessage: HIGH_LOAD_MESSAGE,
+              providerMessage: j.error && (j.error.message || j.error)
+                ? String(j.error.message || j.error)
+                : content
+            });
+            return;
+          }
           resolve({ content, usageTotal: usage });
         } catch (e) {
           clearTimeout(timeout);
@@ -1410,20 +1684,31 @@ function streamWithProvider(apiMessages, provider, model) {
 
       // ONE callback for every parsed SSE payload — used by the mid-stream
       // loop and the tail flush, so a delta can never be appended twice.
-      const onParsed = function (delta, usage) {
+      const onParsed = function (delta, usage, apiError, reasoningActive) {
         if (settled) return;
+        if (apiError) {
+          settled = true;
+          clearTimeout(timeout);
+          try { controller.abort(); } catch (e) { /* reader will stop */ }
+          reject({
+            userMessage: HIGH_LOAD_MESSAGE,
+            providerMessage: apiError
+          });
+          return;
+        }
+        if (reasoningActive) {
+          setStreamStatus("Thinking…");
+        }
         if (delta) {
-          removeTyping(); // typing dots never linger while content is flowing
           const kind = classifyChunk(delta, content);
           if (kind === "cumulative") {
             // Server sent "everything so far + new text" — REPLACE.
             content = delta;
-            streamContent = content;
-            updateStreamBubble();
           } else if (kind !== "duplicate") {
             content += delta;      // append only the NEW delta
-            streamingTick(delta);  // render into the SAME streaming bubble
           }
+          const filtered = filterThinkingContent(content);
+          streamingTick(filtered.content, filtered.thinking);
           // "duplicate" chunks (identical re-sends) are ignored.
           guardAgainstRepetition();
         }
@@ -1437,8 +1722,9 @@ function streamWithProvider(apiMessages, provider, model) {
         if (settled) return;
         if (content.length - lastRepCheckLen < 64) return; // throttle
         lastRepCheckLen = content.length;
-        const trimmed = collapseRepeatedResponse(content) ||
-          trimRunawayRepetition(content) || cleanFinalResponse(content);
+        const visibleContent = filterThinkingContent(content).content;
+        const trimmed = collapseRepeatedResponse(visibleContent) ||
+          trimRunawayRepetition(visibleContent) || cleanFinalResponse(visibleContent);
         if (!trimmed) return;
         settled = true;
         try { controller.abort(); } catch (e) { /* reader will error */ }
@@ -1483,13 +1769,22 @@ function streamWithProvider(apiMessages, provider, model) {
             }
           }
           clearTimeout(timeout);
-          if (!settled) resolve({ content, usageTotal });
+          if (!settled) {
+            if (isProviderErrorContent(content)) {
+              reject({
+                userMessage: HIGH_LOAD_MESSAGE,
+                providerMessage: content
+              });
+            } else {
+              resolve({ content, usageTotal });
+            }
+          }
         } catch (err) {
           clearTimeout(timeout);
           if (settled) return; // repetition guard already resolved this request
           // Normalise timeouts/aborts so the fallback can try the next provider.
           if (err && err.name === "AbortError") {
-            reject({ name: "AbortError", userMessage: "The AI service took too long to respond." });
+            reject({ name: "AbortError", userMessage: HIGH_LOAD_MESSAGE });
           } else {
             reject(err);
           }
@@ -1504,7 +1799,7 @@ function streamWithProvider(apiMessages, provider, model) {
       if (!err.userMessage) {
         const raw = err.message || "";
         if (/failed to fetch|networkerror|load failed/i.test(raw)) {
-          reject({ name: (err && err.name) || "FetchError", userMessage: "Could not reach this AI service. Trying the next option." });
+          reject({ name: (err && err.name) || "FetchError", userMessage: HIGH_LOAD_MESSAGE });
         } else {
           reject(err);
         }
@@ -1525,9 +1820,21 @@ function resetStreamBubble() {
 function parseChunk(payload, cb) {
   try {
     const obj = JSON.parse(payload);
+    const apiError = obj && obj.error
+      ? String(obj.error.message || obj.error)
+      : null;
+    if (apiError) {
+      cb(null, null, apiError);
+      return;
+    }
     let delta = null;
+    let reasoningActive = false;
     if (obj.choices && obj.choices[0] && obj.choices[0].delta) {
       delta = obj.choices[0].delta.content || "";
+      reasoningActive = Boolean(
+        obj.choices[0].delta.reasoning_content ||
+        obj.choices[0].delta.reasoning
+      ) && !delta;
     }
     if (obj.choices && obj.choices[0] && obj.choices[0].message && !delta) {
       delta = obj.choices[0].message.content || ""; // non-stream fallback
@@ -1535,10 +1842,10 @@ function parseChunk(payload, cb) {
     if (typeof delta !== "string" || !delta) delta = null;
     const usage = (obj.usage && typeof obj.usage.total_tokens === "number")
       ? obj.usage.total_tokens : null;
-    cb(delta, usage);
+    cb(delta, usage, null, reasoningActive);
   } catch (e) {
     console.debug("Malformed SSE chunk skipped:", payload);
-    cb(null, null);
+    cb(null, null, null, false);
   }
 }
 /* ==========================================================
@@ -1572,9 +1879,18 @@ function endStreamRender() {
   streamRafPending = false;
 }
 
-function streamingTick(delta) {
-  streamContent += delta;
-  removeTyping();
+function setStreamStatus(label) {
+  if (!dom.streamStatus) return;
+  const dot = dom.streamStatus.querySelector(".dot");
+  dom.streamStatus.textContent = "";
+  if (dot) dom.streamStatus.appendChild(dot);
+  dom.streamStatus.appendChild(document.createTextNode(` ${label}`));
+}
+
+function streamingTick(visibleContent, thinking = false) {
+  streamContent = visibleContent;
+  setStreamStatus(thinking ? "Thinking…" : "Generating…");
+  if (streamContent) removeTyping();
   if (!streamActive) return;
   if (state.currentChatId !== streamChatId) {
     // Streaming belongs to another chat — don't touch active chat DOM.
@@ -1607,7 +1923,7 @@ function updateStreamBubble() {
     avatar.className = "avatar";
     avatar.setAttribute("aria-hidden", "true");
     avatar.innerHTML =
-      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.3 4.1a5.2 5.2 0 0 1-3.6 3.6L3 12l4.1 1.3a5.2 5.2 0 0 1 3.6 3.6L12 21l1.3-4.1a5.2 5.2 0 0 1 3.6-3.6L21 12l-4.1-1.3a5.2 5.2 0 0 1-3.6-3.6L12 3Z"/></svg>';
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6.5 5.5v6.4a5.5 5.5 0 0 0 11 0V5.5"/><path d="m19 3 .35 1.05 1.05.35-1.05.35L19 5.8l-.35-1.05-1.05-.35 1.05-.35L19 3Z" fill="currentColor" stroke="none"/></svg>';
     const bubble = document.createElement("div");
     bubble.className = "bubble md";
     el.appendChild(avatar);
@@ -1845,13 +2161,28 @@ function initEventListeners() {
       showToast("Please wait for the advertisement.");
       return;
     }
-    finishAdBreak();
+    if (state.glmUnlockFlow) completeGlmUnlockAd();
+    else finishAdBreak();
   });
   // A pending ad created in another tab must also block this tab.
   window.addEventListener("storage", (event) => {
     if (event.key === AD_PENDING_KEY && event.newValue === "1") {
       savePendingAd(true);
       if (!state.adBreakActive) showAdBreak();
+    }
+    if (event.key === GLM_AD_VIEWS_KEY) {
+      const value = Number(event.newValue);
+      state.glmAdViews = Number.isFinite(value)
+        ? Math.max(0, Math.min(REQUIRED_GLM_AD_VIEWS, Math.floor(value)))
+        : 0;
+      updateModelUi();
+    }
+    if (event.key === MODEL_SELECTION_KEY && event.newValue) {
+      const valid = MODEL_OPTIONS.some((item) => item.model === event.newValue);
+      if (valid && (event.newValue !== FALLBACK_MODEL || isGlmUnlocked())) {
+        state.selectedModel = event.newValue;
+        updateModelUi();
+      }
     }
   });
 
@@ -1862,7 +2193,16 @@ function initEventListeners() {
 
   // Window online/offline toasts
   window.addEventListener("offline", () => showToast("You are offline. Please check your internet connection."));
-  window.addEventListener("online", () => showToast("Back online."));
+  window.addEventListener("online", () => {
+    showToast("Back online.");
+    checkModelHealth();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden &&
+        Date.now() - state.lastModelHealthCheck >= MODEL_HEALTH_INTERVAL_MS) {
+      checkModelHealth();
+    }
+  });
 }
 /* ==========================================================
    14. INITIALIZATION
@@ -1874,6 +2214,8 @@ function initEventListeners() {
 async function init() {
   initDom();
   loadAdReplyCounter();
+  loadModelPreferences();
+  initModelSelector();
   loadSocialBar();
   loadDesktopPopunder();
 
@@ -1898,6 +2240,8 @@ async function init() {
   updateComposerState();
   autoGrowInput();
   if (state.pendingAdBreak) showAdBreak();
+  window.setTimeout(checkModelHealth, 0);
+  window.setInterval(checkModelHealth, MODEL_HEALTH_INTERVAL_MS);
 
 }
 

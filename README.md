@@ -6,12 +6,16 @@ A lightweight vanilla JavaScript AI assistant for Urdu, Roman Urdu, and English.
 
 - Static frontend: GitHub Pages / `umrani.devs.li`
 - AI providers: ten Dahl browser-side API keys
-- Fallback order: one primary account followed by nine account fallbacks
-- Model order on every account: DeepSeek, GLM 5.3, then MiniMax M2.7
+- User-facing model names are limited to Umrani 2.0, Umrani 2.1, and
+  Umrani 2.2; provider model names remain internal
+- The selected model falls back from the primary account through nine account
+  fallbacks without silently changing the user's chosen model
+- Model availability is checked every two minutes while the page is visible
+- Umrani 2.2 unlocks after four manually completed inline ad breaks
 - No token or daily usage limit
 - AI code blocks include Copy and language-aware Download controls
-- Upload supports text and source-code files up to 200 KB; up to 60,000
-  characters are sent. Image, PDF and DOCX input is not supported.
+- Upload supports text and source-code files up to 3 MB. Image, PDF and DOCX
+  input is not supported.
 - Advertising: one Adsterra Native Banner inline after every two complete chats
 - Adsterra Social Bar remains enabled for notification-style ads
 - Pending ad breaks survive refresh and synchronize to other open tabs
@@ -21,7 +25,7 @@ A lightweight vanilla JavaScript AI assistant for Urdu, Roman Urdu, and English.
 
 ## Run the frontend locally
 
-The included `dist/app.bundle.js` also lets you open `index.html` directly by
+The included versioned production bundle in `dist/` also lets you open `index.html` directly by
 double-clicking it. For development, serving over HTTP is still recommended:
 
 ```bash

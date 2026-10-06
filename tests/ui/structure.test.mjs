@@ -4,9 +4,11 @@ import { readFile } from "node:fs/promises";
 
 test("HTML points to the modular Umrani entry point and favicon", async () => {
   const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
-  assert.match(html, /styles\/main\.css/);
-  assert.match(html, /defer src="dist\/app\.bundle\.js\?v=39"/);
-  assert.match(html, /text-anchor='middle'%3EU%3C\/text/);
+  assert.match(html, /styles\/main\.css\?v=47/);
+  assert.match(html, /defer src="dist\/app\.bundle\.v47\.js"/);
+  assert.match(html, /id="modelSelect"/);
+  assert.match(html, /id="modelHealth"/);
+  assert.match(html, /assets\/icons\/umrani-mark\.svg\?v=47/);
   assert.match(html, /https:\/\/fahadumrani\.devs\.li\//);
   assert.match(html, /id="adsterraAdShell"/);
   assert.match(html, /id="adsterraCloseButton"/);
@@ -32,17 +34,31 @@ test("uses ten Dahl providers with three text models", async () => {
   );
   assert.doesNotMatch(config, /TOKEN_LIMIT|TOKEN_RESET_MS/);
   assert.doesNotMatch(config, /GOOGLE_AD_MANAGER|REWARDED_AD/);
+  assert.match(config, /You are Umrani, a smart, friendly, accurate, and professional AI assistant/);
+  assert.match(config, /respond in the same language and style the user uses/);
 });
 
-test("switches model immediately after one failed attempt", async () => {
+test("uses the selected model across provider fallbacks", async () => {
   const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
   assert.match(main, /for \(const provider of providers\)/);
-  assert.match(main, /for \(const model of getProviderModels\(provider\)\)/);
-  assert.ok(
-    main.indexOf("for (const provider of providers)") <
-    main.indexOf("for (const model of getProviderModels(provider))")
-  );
-  assert.doesNotMatch(main, /for \(const model of modelOrder\)/);
+  assert.match(main, /const model = state\.selectedModel/);
+  assert.match(main, /switching provider/);
+  assert.doesNotMatch(main, /for \(const model of getProviderModels\(provider\)\)/);
+});
+
+test("offers aliased models, two-minute health checks, and four-ad GLM access", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../../index.html", import.meta.url), "utf8");
+  assert.match(main, /display: "Umrani 2\.0"/);
+  assert.match(main, /display: "Umrani 2\.1"/);
+  assert.match(main, /display: "Umrani 2\.2"/);
+  assert.doesNotMatch(main, /display: "Umrani 2\.[012] —/);
+  assert.match(main, /REQUIRED_GLM_AD_VIEWS = 4/);
+  assert.match(main, /MODEL_HEALTH_INTERVAL_MS = 2 \* 60 \* 1000/);
+  assert.match(main, /controller\.abort\(\), 1000/);
+  assert.doesNotMatch(html, /Checking…/);
+  assert.match(main, /window\.setInterval\(checkModelHealth, MODEL_HEALTH_INTERVAL_MS\)/);
+  assert.match(main, /if \(state\.glmUnlockFlow\) completeGlmUnlockAd\(\)/);
 });
 
 test("loads one Social Bar script on desktop and mobile", async () => {
@@ -113,8 +129,8 @@ test("keeps AI locked only when all independent ad-block signals agree", async (
 
 test("composer supports text and code file attachments", async () => {
   const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
-  assert.match(main, /MAX_UPLOAD_BYTES = 200 \* 1024/);
-  assert.match(main, /MAX_UPLOAD_CHARS = 60000/);
+  assert.match(main, /MAX_UPLOAD_BYTES = 3 \* 1024 \* 1024/);
+  assert.match(main, /MAX_UPLOAD_CHARS = 3 \* 1024 \* 1024/);
   assert.match(main, /function handleFileSelection/);
   assert.match(main, /function attachmentForApi/);
   assert.match(main, /Images, PDF and DOCX are not supported/);
@@ -143,4 +159,22 @@ test("finishes SSE streams immediately when the DONE sentinel arrives", async ()
   assert.match(main, /if \(payload === "\[DONE\]"\)/);
   assert.match(main, /await reader\.cancel\(\)/);
   assert.match(main, /if \(!res\.ok\) \{\s*clearTimeout\(timeout\)/);
+});
+
+test("shows one generic high-load error and falls back on SSE API errors", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  assert.match(main, /Umrani AI is under high load\. Please wait\./);
+  assert.match(main, /const onParsed = function \(delta, usage, apiError, reasoningActive\)/);
+  assert.match(main, /providerMessage: apiError/);
+  assert.match(main, /isProviderErrorContent\(content\)/);
+  assert.doesNotMatch(main, /showToast\(j\.error\.message/);
+});
+
+test("hides model reasoning and uses the top status for thinking", async () => {
+  const main = await readFile(new URL("../../src/main.js", import.meta.url), "utf8");
+  assert.match(main, /filterThinkingContent\(res\.content \|\| ""\)\.content/);
+  assert.match(main, /Permanently remove reasoning that may have been saved by older builds/);
+  assert.match(main, /setStreamStatus\("Thinking…"\)/);
+  assert.match(main, /streamingTick\(filtered\.content, filtered\.thinking\)/);
+  assert.match(main, /delta\.reasoning_content/);
 });
