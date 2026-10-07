@@ -8,8 +8,8 @@
   --bg-bubble-user: #7C3AED;
   --bg-composer: #FFFFFF;
   --bg-hover: #F0FDF4;
-  --bg-code: #2C2C2C;
-  --bg-code-head: #3a3a3a;
+  --bg-code: #FFFFFF;
+  --bg-code-head: #F4F1EA;
   --bg-menu: #FFFFFF;
   --bg-input: #FFFFFF;
 
@@ -17,7 +17,7 @@
   --text-secondary: #475569;
   --text-muted: #7C8798;
   --text-user-bubble: #FFFFFF;
-  --text-code: #f5f5f5;
+  --text-code: #172033;
 
   --border: #e6e2da;
   --border-strong: #d8d3c8;

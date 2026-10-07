@@ -9,10 +9,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <link rel="stylesheet" href="styles/main.css?v=47" />
   <link rel="icon" type="image/svg+xml" href="assets/icons/umrani-mark.svg?v=47" />
 </head>
 <body>
+
+  <!-- Loading screen shown while the fastest AI model is tested. -->
+  <div class="model-loading" id="modelLoadingOverlay" role="status" aria-live="polite">
+    <div class="model-loading-card">
+      <div class="model-loading-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+          <path d="M6.5 5.5v6.4a5.5 5.5 0 0 0 11 0V5.5"/>
+          <path d="m19 3 .35 1.05 1.05.35-1.05.35L19 5.8l-.35-1.05-1.05-.35 1.05-.35L19 3Z" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <p class="model-loading-title">Umrani</p>
+      <p class="model-loading-sub">Testing AI models…</p>
+    </div>
+  </div>
 
   <!-- ======================= SIDEBAR ======================= -->
   <aside class="sidebar" id="sidebar" aria-label="Chat navigation">
@@ -54,40 +69,23 @@
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
       <span class="topbar-title">Umrani</span>
-      <div class="model-control">
-        <label for="modelSelect">Model</label>
-        <select id="modelSelect" aria-label="Select Umrani model"></select>
-        <span class="model-health" id="modelHealth" role="status" aria-live="polite"></span>
-      </div>
       <span class="topbar-status" id="streamStatus" hidden>
         <span class="dot" aria-hidden="true"></span> Generating…
       </span>
     </header>
 
     <!--
-      ADSTERRA DISPLAY-AD SECTION
-      ---------------------------
+      ADSTERRA NATIVE BANNER
+      ----------------------
       1. The third-party script renders the advertisement inside this shell.
       2. The × button is controlled by src/ui/ads.js.
-      3. Clicking × only hides this shell for the current browser session.
-         It does not click the advertisement or reset the daily allowance.
+      3. Clicking × only hides this shell for the current session; it does not
+         lock the composer, and the next chat simply shows a fresh ad.
     -->
-    <!-- Ad blockers commonly hide elements with these standard ad classes.
-         JavaScript combines this bait check with the Adsterra script status. -->
-    <div class="adsbox ad-banner ad-placement" id="adBlockBait" aria-hidden="true"></div>
-    <!--
-      Social Bar is loaded once by src/main.js on desktop and mobile.
-      The separate Native Banner remains inside the chat feed.
-    -->
-
-    <!-- Native Banner is the format that can render inside the chat feed. -->
     <section class="adsterra-ad-shell" id="adsterraAdShell" aria-label="Advertisement" hidden>
       <span class="adsterra-ad-label">Advertisement</span>
       <button class="adsterra-close-btn" id="adsterraCloseButton"
               type="button" aria-label="Close advertisement" title="Close advertisement">×</button>
-      <span class="adblock-warning" id="adBlockWarning" hidden>
-        The ad request was blocked. Disable any ad/privacy blocker and refresh.
-      </span>
       <script>
         window.__umraniAdsterraStatus = "idle";
       </script>
@@ -95,10 +93,6 @@
            Loading it inside a hidden box can produce a blank ad in Chrome. -->
       <div class="native-ad-container"
            id="container-63ea484e1a293480518c8d527b5e81e3"></div>
-      <!-- Smartlink is user-initiated and shown on desktop only. -->
-      <a class="desktop-smartlink" id="desktopSmartlink"
-         href="https://araplhn.org/4/1a6d91f12807017d4ca192e215b57599"
-         target="_blank" rel="noopener noreferrer sponsored">Open sponsored link</a>
     </section>
 
     <main class="chat-area" id="chatArea" aria-live="polite">
@@ -135,10 +129,14 @@
             <path d="m21.4 11.6-8.9 8.9A6 6 0 0 1 4 12l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 0 1-2.8-2.8L15.8 6"/>
           </svg>
         </button>
-        <textarea id="messageInput" rows="1" placeholder="Ask anything…" aria-label="Message" maxlength="8000"></textarea>
+        <textarea id="messageInput" rows="1" placeholder="Ask anything…" aria-label="Message"></textarea>
 
         <button class="icon-btn composer-mic" id="micBtn" aria-label="Voice input">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7"/></svg>
+        </button>
+
+        <button class="stop-btn" id="stopBtn" aria-label="Stop generating" title="Stop generating" hidden>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
         </button>
 
         <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
@@ -146,6 +144,7 @@
         </button>
       </div>
 
+      <p class="composer-model" id="composerModelLabel">Umrani 2.2</p>
       <p class="composer-hint">Umrani can make mistakes. Check important info.</p>
     </div>
   </div>
@@ -168,6 +167,9 @@
   <!-- Toast notifications -->
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+  <!-- KaTeX for math rendering (formulas and derivations). -->
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
   <!-- Bundled classic script: works on GitHub Pages and when index.html is
        opened directly with file:// by double-clicking the file. -->
   <script defer src="dist/app.bundle.v47.js"></script>

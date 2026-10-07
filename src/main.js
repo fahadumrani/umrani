@@ -1,7 +1,7 @@
 /* ==========================================================
    Umrani — app.js
    Frontend-only AI chatbot. Vanilla JS. IndexedDB persistence.
-   Adsterra display ad break after every two complete chat cycles.
+   Adsterra native ad shown inline after every chat reply.
    Sections:
      1. Configuration
      2. DOM references
@@ -12,10 +12,10 @@
      7. UI rendering
      8. Message handling
      9. API / streaming
-    10. Two-chat ad breaks
-    12. Voice input
-    13. Event listeners
-    14. Initialization
+    10. Inline ad
+    11. Voice input
+    12. Event listeners
+    13. Initialization
    ========================================================== */
 
 import {
@@ -27,7 +27,6 @@ import {
 } from "./api/models.js";
 import { makeId, isRtlText } from "./utils/helpers.js";
 import { makeTitle } from "./core/chat.js";
-import { MAX_CONTEXT_MESSAGES } from "./core/memory.js";
 import { STORAGE_DATABASE } from "./core/storage.js";
 import { HISTORY_STORE, APP_STATE_STORE } from "./core/history.js";
 import { SYSTEM_ROLE, USER_ROLE, AI_ROLE } from "./core/ai.js";
@@ -51,32 +50,14 @@ import {
   ATTACHMENT_NAME_ELEMENT_ID, ATTACHMENT_REMOVE_BUTTON_ELEMENT_ID
 } from "./ui/chat.js";
 import { STREAM_MESSAGE_ELEMENT_ID } from "./ui/messages.js";
-import { AD_BLOCK_WARNING_ELEMENT_ID } from "./ui/modal.js";
 import { TOAST_ELEMENT_ID } from "./ui/notifications.js";
 import { initAdsterraCloseButton } from "./ui/ads.js";
 
 const HIGH_LOAD_MESSAGE = "Umrani AI is under high load. Please wait.";
-const MODEL_SELECTION_KEY = "umrani-selected-model";
-const GLM_AD_VIEWS_KEY = "umrani-glm-ad-views";
-const REQUIRED_GLM_AD_VIEWS = 4;
-const MODEL_HEALTH_INTERVAL_MS = 2 * 60 * 1000;
-const MODEL_OPTIONS = [
-  {
-    model: SECOND_FALLBACK_MODEL,
-    alias: "Umrani 2.0",
-    display: "Umrani 2.0"
-  },
-  {
-    model: PRIMARY_MODEL,
-    alias: "Umrani 2.1",
-    display: "Umrani 2.1"
-  },
-  {
-    model: FALLBACK_MODEL,
-    alias: "Umrani 2.2",
-    display: "Umrani 2.2"
-  }
-];
+const MODEL_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
+const MODEL_TEST_TIMEOUT_MS = 3000;
+const MODEL_POOL = [PRIMARY_MODEL, FALLBACK_MODEL, SECOND_FALLBACK_MODEL];
+const UI_MODEL_NAME = "Umrani 2.2";
 
 function getProviderModels(provider) {
   if (!provider || !Array.isArray(provider.models)) return [];
@@ -112,17 +93,17 @@ function initDom() {
   dom.messages = document.getElementById(MESSAGES_ELEMENT_ID);
   dom.emptyState = document.getElementById(EMPTY_STATE_ELEMENT_ID);
   dom.streamStatus = document.getElementById(STREAM_STATUS_ELEMENT_ID);
-  dom.modelSelect = document.getElementById("modelSelect");
-  dom.modelHealth = document.getElementById("modelHealth");
+  dom.modelLoadingOverlay = document.getElementById("modelLoadingOverlay");
+  dom.composerModelLabel = document.getElementById("composerModelLabel");
   dom.messageInput = document.getElementById(MESSAGE_INPUT_ELEMENT_ID);
   dom.sendBtn = document.getElementById(SEND_BUTTON_ELEMENT_ID);
+  dom.stopBtn = document.getElementById("stopBtn");
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
   dom.attachBtn = document.getElementById(ATTACH_BUTTON_ELEMENT_ID);
   dom.fileInput = document.getElementById(FILE_INPUT_ELEMENT_ID);
   dom.attachmentBar = document.getElementById(ATTACHMENT_BAR_ELEMENT_ID);
   dom.attachmentName = document.getElementById(ATTACHMENT_NAME_ELEMENT_ID);
   dom.attachmentRemoveBtn = document.getElementById(ATTACHMENT_REMOVE_BUTTON_ELEMENT_ID);
-  dom.adBlockWarning = document.getElementById(AD_BLOCK_WARNING_ELEMENT_ID);
   dom.toast = document.getElementById(TOAST_ELEMENT_ID);
   dom.composer = document.getElementById(COMPOSER_ELEMENT_ID);
 }
@@ -138,124 +119,128 @@ const state = {
   currentChatId: null,
   chats: [],              // cached chat summaries + full messages when active
   isStreaming: false,
-  adBreakActive: false,
-  pendingAdBreak: false,
-  adCloseScheduled: false,
-  adCloseAllowedAt: 0,
-  repliesSinceAd: 0,
-  adBlockDetected: null,
   pendingAttachment: null,
   activeRequestChatId: null,
   controller: null,        // AbortController for current request
-  selectedModel: SECOND_FALLBACK_MODEL,
-  modelAvailability: Object.create(null),
-  modelHealthChecking: false,
-  lastModelHealthCheck: 0,
-  glmAdViews: 0,
-  glmUnlockFlow: false,
+  activeModel: SECOND_FALLBACK_MODEL,
+  modelsTested: false,
+  modelTesting: false,
+  stopRequested: false
 };
 
-const SOCIAL_BAR_SRC = "https://bauval.org/14/a67c4a1da3645718e3483de61514fbe8";
-const POPUNDER_SRC = "https://abscloud.org/1/1082f6d1e3a685e366e87a1a8c047da9";
 const NATIVE_BANNER_SRC = "https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3";
-const DESKTOP_AD_MIN_WIDTH = 901;
 
-// A network error alone is not proof of ad blocking. A real blocker commonly
-// blocks the request AND cosmetically hides this standard ad-bait element.
-function isAdBlockBaitHidden() {
-  const bait = document.getElementById("adBlockBait");
-  if (!bait) return false;
-  const style = window.getComputedStyle(bait);
-  return style.display === "none" ||
-    style.visibility === "hidden" ||
-    Number(style.opacity) === 0 ||
-    bait.offsetWidth === 0 ||
-    bait.offsetHeight === 0;
+/* ---------- Model testing / auto-selection ----------
+   The exact model identity is hidden from users. On startup Umrani probes
+   each model once, chooses the FASTEST available model, and keeps the full
+   pool as a fallback chain if the active model ever fails. */
+function showModelLoading() {
+  if (!dom.modelLoadingOverlay) return;
+  dom.modelLoadingOverlay.hidden = false;
 }
 
-// Load exactly one Social Bar script on desktop and mobile.
-function loadSocialBar() {
-  if (document.getElementById("adsterraSocialBarScript")) return;
-
-  window.__umraniSocialBarStatus = "loading";
-  const script = document.createElement("script");
-  script.id = "adsterraSocialBarScript";
-  script.async = true;
-  script.dataset.cfasync = "false";
-  script.src = SOCIAL_BAR_SRC;
-  script.onload = () => { window.__umraniSocialBarStatus = "loaded"; };
-  script.onerror = () => { window.__umraniSocialBarStatus = "error"; };
-  document.head.appendChild(script);
+function hideModelLoading() {
+  if (!dom.modelLoadingOverlay) return;
+  dom.modelLoadingOverlay.hidden = true;
 }
 
-// Popunder is a desktop-only format. The provider controls when it opens;
-// this code only installs its official script once and never simulates clicks.
-function loadDesktopPopunder() {
-  if (window.innerWidth < DESKTOP_AD_MIN_WIDTH) return;
-  if (document.getElementById("adsterraPopunderScript")) return;
-
-  const script = document.createElement("script");
-  script.id = "adsterraPopunderScript";
-  script.async = true;
-  script.dataset.cfasync = "false";
-  script.src = POPUNDER_SRC;
-  document.head.appendChild(script);
+function probeModelTimed(model) {
+  const provider = API_PROVIDERS.find(isProviderConfigured);
+  if (!provider || !getProviderModels(provider).includes(model)) {
+    return Promise.resolve(null);
+  }
+  const controller = new AbortController();
+  const started = performance.now();
+  const timeout = window.setTimeout(() => controller.abort(), MODEL_TEST_TIMEOUT_MS);
+  return fetch(provider.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + provider.key
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: USER_ROLE, content: "Reply OK" }],
+      stream: false,
+      max_tokens: 1
+    }),
+    signal: controller.signal
+  })
+    .then(async (res) => {
+      const ms = performance.now() - started;
+      if (!res.ok) return null;
+      const json = await res.json().catch(() => null);
+      if (!json || json.error) return null;
+      const content = json.choices && json.choices[0] && json.choices[0].message
+        ? json.choices[0].message.content
+        : "";
+      if (isProviderErrorContent(content)) return null;
+      return { model, ms };
+    })
+    .catch(() => null)
+    .finally(() => window.clearTimeout(timeout));
 }
 
-// Chrome can calculate a zero-width native widget when its script runs while
-// the parent has [hidden]. Load the official script only after the inline ad
-// shell is visible and has a real layout width.
+async function testModelsAndPick() {
+  if (state.modelTesting) return;
+  state.modelTesting = true;
+  // Only the first run blocks the UI with the loading screen; background
+  // rechecks (every few minutes) must stay invisible.
+  if (!state.modelsTested) showModelLoading();
+  try {
+    const results = await Promise.all(MODEL_POOL.map((model) => probeModelTimed(model)));
+    const healthy = results.filter(Boolean).sort((a, b) => a.ms - b.ms);
+    if (healthy.length > 0) {
+      state.activeModel = healthy[0].model;
+    }
+  } finally {
+    state.modelTesting = false;
+    state.modelsTested = true;
+    hideModelLoading();
+  }
+}
+
+/* ---------- Inline ad (Native Banner) ----------
+   Adsterra's Native Banner is requested inline after every chat reply. The
+   composer is never locked: closing the ad is voluntary and optional. */
 function ensureNativeBannerLoaded() {
   const shell = document.getElementById("adsterraAdShell");
   const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
   if (!shell || !container || shell.hidden) return;
 
   const status = window.__umraniAdsterraStatus || "idle";
-  const oldScript = document.getElementById("adsterraNativeBannerScript");
-  if (status === "loaded") {
-    state.adBlockDetected = false;
-    updateAdBreakWarning();
-    scheduleAdClose();
-    return;
-  }
-  if (status === "loading") return;
-  if (oldScript) oldScript.remove();
+  if (status === "loaded" || status === "loading") return;
 
-  state.adBlockDetected = null;
-  updateAdBreakWarning();
   window.__umraniAdsterraStatus = "loading";
-
   const script = document.createElement("script");
   script.id = "adsterraNativeBannerScript";
   script.async = true;
   script.dataset.cfasync = "false";
   script.src = NATIVE_BANNER_SRC;
-  script.onload = () => {
-    window.__umraniAdsterraStatus = "loaded";
-    // The real ad script loaded, so a cosmetically hidden bait by itself is
-    // not enough evidence to accuse the user of blocking ads.
-    state.adBlockDetected = false;
-    updateAdBreakWarning();
-    scheduleAdClose();
-  };
-  script.onerror = () => {
-    // Confirm blocking only when THREE independent signals agree:
-    // Native Banner failed, Social Bar also failed, and cosmetic bait is
-    // hidden. This avoids Chrome/Edge false positives from bait rules alone.
-    window.__umraniAdsterraStatus = "unavailable";
-    state.adBlockDetected =
-      window.__umraniSocialBarStatus === "error" &&
-      isAdBlockBaitHidden();
-    updateAdBreakWarning();
-    if (state.adBlockDetected) {
-      state.adCloseAllowedAt = 0;
-      const closeButton = document.getElementById("adsterraCloseButton");
-      if (closeButton) closeButton.hidden = true;
-    } else {
-      scheduleAdClose();
-    }
-  };
+  script.onload = () => { window.__umraniAdsterraStatus = "loaded"; };
+  script.onerror = () => { window.__umraniAdsterraStatus = "unavailable"; };
   shell.insertBefore(script, container);
+}
+
+function showAdBreak() {
+  const shell = document.getElementById("adsterraAdShell");
+  const closeButton = document.getElementById("adsterraCloseButton");
+  if (!shell) return;
+
+  const oldScript = document.getElementById("adsterraNativeBannerScript");
+  if (oldScript) oldScript.remove();
+  const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
+  if (container) container.textContent = "";
+  window.__umraniAdsterraStatus = "idle";
+
+  if (closeButton) closeButton.hidden = false;
+  dom.messages.appendChild(shell);
+  shell.hidden = false;
+  shell.classList.add("inline-ad-mode");
+  shell.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(ensureNativeBannerLoaded);
+  });
 }
 
 /* ==========================================================
@@ -350,265 +335,12 @@ function showToast(message, ms = 2800) {
   toastTimer = setTimeout(() => { dom.toast.hidden = true; }, ms);
 }
 
-/* ==========================================================
-   10. TWO-CHAT AD COUNTER
-   ----------------------------------------------------------
-   One chat cycle means one user message plus one successful AI reply.
-   After two cycles, reset the counter and display one Adsterra break.
-   The counter persists across refreshes in localStorage.
-   ========================================================== */
-const AD_REPLY_COUNTER_KEY = "umrani-replies-since-ad";
-const AD_PENDING_KEY = "umrani-ad-pending";
-
-function loadAdReplyCounter() {
-  try {
-    const saved = Number(localStorage.getItem(AD_REPLY_COUNTER_KEY));
-    state.repliesSinceAd = Number.isFinite(saved)
-      ? Math.max(0, Math.min(1, Math.floor(saved)))
-      : 0;
-    state.pendingAdBreak = localStorage.getItem(AD_PENDING_KEY) === "1";
-  } catch {
-    state.repliesSinceAd = 0;
-    state.pendingAdBreak = false;
-  }
-}
-
-function saveAdReplyCounter() {
-  try {
-    localStorage.setItem(AD_REPLY_COUNTER_KEY, String(state.repliesSinceAd));
-  } catch {
-    // The in-memory counter still works when storage is unavailable.
-  }
-}
-
-function savePendingAd(pending) {
-  state.pendingAdBreak = pending;
-  try {
-    if (pending) localStorage.setItem(AD_PENDING_KEY, "1");
-    else localStorage.removeItem(AD_PENDING_KEY);
-  } catch {
-    // In-memory enforcement remains active if storage is unavailable.
-  }
-}
-
-function recordSuccessfulReply() {
-  state.repliesSinceAd += 1;
-  if (state.repliesSinceAd >= 2) {
-    state.repliesSinceAd = 0;
-    saveAdReplyCounter();
-    savePendingAd(true);
-    // Insert the inline card only after the final chat re-render completes.
-    return;
-  }
-  saveAdReplyCounter();
-}
 
 /* ==========================================================
-   MODEL SELECTION, HEALTH, AND UMRANI 2.2 ACCESS
+   MODEL LABEL
    ========================================================== */
-function modelOption(model) {
-  return MODEL_OPTIONS.find((item) => item.model === model) || MODEL_OPTIONS[0];
-}
-
-function isGlmUnlocked() {
-  return state.glmAdViews >= REQUIRED_GLM_AD_VIEWS;
-}
-
-function loadModelPreferences() {
-  try {
-    const views = Number(localStorage.getItem(GLM_AD_VIEWS_KEY));
-    state.glmAdViews = Number.isFinite(views)
-      ? Math.max(0, Math.min(REQUIRED_GLM_AD_VIEWS, Math.floor(views)))
-      : 0;
-    const saved = localStorage.getItem(MODEL_SELECTION_KEY);
-    const valid = MODEL_OPTIONS.some((item) => item.model === saved);
-    state.selectedModel = valid ? saved : SECOND_FALLBACK_MODEL;
-    if (state.selectedModel === FALLBACK_MODEL && !isGlmUnlocked()) {
-      state.selectedModel = SECOND_FALLBACK_MODEL;
-    }
-  } catch {
-    state.glmAdViews = 0;
-    state.selectedModel = SECOND_FALLBACK_MODEL;
-  }
-}
-
-function saveSelectedModel() {
-  try {
-    localStorage.setItem(MODEL_SELECTION_KEY, state.selectedModel);
-  } catch {
-    // The in-memory selection still works when storage is unavailable.
-  }
-}
-
-function modelHealthLabel(model) {
-  if (model === FALLBACK_MODEL && !isGlmUnlocked()) {
-    const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
-    return `${remaining} ad${remaining === 1 ? "" : "s"} to unlock`;
-  }
-  const availability = state.modelAvailability[model];
-  if (availability === true) return "Active";
-  if (availability === false) return "Model is under overload";
-  return "";
-}
-
-function updateModelUi() {
-  if (!dom.modelSelect || !dom.modelHealth) return;
-  const selected = state.selectedModel;
-  for (const optionEl of dom.modelSelect.options) {
-    const item = modelOption(optionEl.value);
-    optionEl.textContent = item.display;
-  }
-  dom.modelSelect.value = selected;
-  const label = modelHealthLabel(selected);
-  dom.modelHealth.textContent = label;
-  dom.modelHealth.className = "model-health";
-  if (label === "Active") dom.modelHealth.classList.add("active");
-  else if (label === "Model is under overload") dom.modelHealth.classList.add("overloaded");
-  else if (selected === FALLBACK_MODEL && !isGlmUnlocked()) {
-    dom.modelHealth.classList.add("locked");
-  }
-}
-
-function selectModel(model) {
-  if (!MODEL_OPTIONS.some((item) => item.model === model)) return;
-  state.selectedModel = model;
-  saveSelectedModel();
-  updateModelUi();
-}
-
-function prepareNextUnlockAd() {
-  const oldScript = document.getElementById("adsterraNativeBannerScript");
-  if (oldScript) oldScript.remove();
-  const container = document.getElementById("container-63ea484e1a293480518c8d527b5e81e3");
-  if (container) container.textContent = "";
-  window.__umraniAdsterraStatus = "idle";
-  state.adBlockDetected = null;
-}
-
-function startGlmUnlockFlow() {
-  if (isGlmUnlocked()) {
-    selectModel(FALLBACK_MODEL);
-    return;
-  }
-  if (state.isStreaming) {
-    showToast("Please wait for the current reply to finish.");
-    updateModelUi();
-    return;
-  }
-  if (state.adBreakActive && !state.glmUnlockFlow) {
-    showToast("Close the current advertisement, then select Umrani 2.2 again.");
-    updateModelUi();
-    return;
-  }
-  state.glmUnlockFlow = true;
-  const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
-  showToast(`Watch ${remaining} more ad${remaining === 1 ? "" : "s"} to unlock Umrani 2.2.`);
-  showAdBreak();
-}
-
-function completeGlmUnlockAd() {
-  finishAdBreak();
-  state.glmAdViews = Math.min(REQUIRED_GLM_AD_VIEWS, state.glmAdViews + 1);
-  try {
-    localStorage.setItem(GLM_AD_VIEWS_KEY, String(state.glmAdViews));
-  } catch {
-    // Keep progress in memory if storage is unavailable.
-  }
-  updateModelUi();
-
-  const remaining = REQUIRED_GLM_AD_VIEWS - state.glmAdViews;
-  if (remaining <= 0) {
-    state.glmUnlockFlow = false;
-    selectModel(FALLBACK_MODEL);
-    showToast("Umrani 2.2 unlocked.");
-    return;
-  }
-
-  prepareNextUnlockAd();
-  showToast(`Ad completed. ${remaining} more to unlock Umrani 2.2.`);
-  window.setTimeout(() => {
-    if (state.glmUnlockFlow) showAdBreak();
-  }, 650);
-}
-
-function initModelSelector() {
-  if (!dom.modelSelect) return;
-  dom.modelSelect.textContent = "";
-  for (const item of MODEL_OPTIONS) {
-    const option = document.createElement("option");
-    option.value = item.model;
-    option.textContent = item.display;
-    dom.modelSelect.appendChild(option);
-  }
-  dom.modelSelect.addEventListener("change", () => {
-    const requested = dom.modelSelect.value;
-    if (state.isStreaming) {
-      showToast("Please wait for the current reply to finish.");
-      updateModelUi();
-      return;
-    }
-    if (requested === FALLBACK_MODEL && !isGlmUnlocked()) {
-      updateModelUi();
-      startGlmUnlockFlow();
-      return;
-    }
-    selectModel(requested);
-  });
-  updateModelUi();
-}
-
-async function probeModel(model) {
-  const provider = API_PROVIDERS.find(isProviderConfigured);
-  if (!provider || !getProviderModels(provider).includes(model)) return false;
-  const controller = new AbortController();
-  // Health status resolves within one second. No "Checking…" text is shown.
-  const timeout = window.setTimeout(() => controller.abort(), 1000);
-  try {
-    const res = await fetch(provider.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + provider.key
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: USER_ROLE, content: "Reply OK" }],
-        stream: false,
-        max_tokens: 1
-      }),
-      signal: controller.signal
-    });
-    if (!res.ok) return false;
-    const json = await res.json().catch(() => null);
-    if (!json || json.error) return false;
-    const content = json.choices && json.choices[0] && json.choices[0].message
-      ? json.choices[0].message.content
-      : "";
-    return !isProviderErrorContent(content);
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
-
-async function checkModelHealth() {
-  if (state.modelHealthChecking || state.isStreaming || state.adBreakActive ||
-      document.hidden || !navigator.onLine) return;
-  state.modelHealthChecking = true;
-  updateModelUi();
-  try {
-    const results = await Promise.all(
-      MODEL_OPTIONS.map(async (item) => [item.model, await probeModel(item.model)])
-    );
-    for (const [model, available] of results) {
-      state.modelAvailability[model] = available;
-    }
-    state.lastModelHealthCheck = Date.now();
-    updateModelUi();
-  } finally {
-    state.modelHealthChecking = false;
-  }
+function updateComposerModelLabel() {
+  if (dom.composerModelLabel) dom.composerModelLabel.textContent = UI_MODEL_NAME;
 }
 /* ==========================================================
    6. CHAT MANAGEMENT
@@ -807,14 +539,10 @@ function renderActiveChat() {
   // Keep the same DOM node alive across chat switches/re-renders; otherwise
   // textContent="" removes the only visible close button while the composer
   // remains locked.
-  const activeAdShell = state.adBreakActive
-    ? document.getElementById("adsterraAdShell")
-    : null;
   msgsEl.textContent = "";
 
   if (!chat) {
     dom.emptyState.hidden = false;
-    if (activeAdShell) msgsEl.appendChild(activeAdShell);
     return;
   }
   dom.emptyState.hidden = true;
@@ -826,7 +554,6 @@ function renderActiveChat() {
     frag.appendChild(buildMessageEl(m));
   }
   msgsEl.appendChild(frag);
-  if (activeAdShell) msgsEl.appendChild(activeAdShell);
   scrollToBottom(false);
 }
 
@@ -917,6 +644,25 @@ function renderMarkdown(targetEl, text) {
     } else {
       targetEl.appendChild(renderInlineBlocks(b.text));
     }
+  }
+  renderMath(targetEl);
+}
+
+function renderMath(targetEl) {
+  if (typeof window.renderMathInElement !== "function") return;
+  try {
+    window.renderMathInElement(targetEl, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false },
+        { left: "$", right: "$", display: false }
+      ],
+      throwOnError: false,
+      ignoredClasses: ["code-body", "code-head", "inline"]
+    });
+  } catch (err) {
+    // Math rendering is non-critical; raw text stays readable.
   }
 }
 
@@ -1368,23 +1114,15 @@ function attachmentForApi(attachment) {
 
 /* ---------- Composer enable/disable ---------- */
 function updateComposerState() {
-  const locked = state.adBreakActive;
-  // Typing stays possible while streaming; only SENDING is blocked
-  // (prevents duplicate sends without freezing the composer).
-  dom.messageInput.disabled = locked;
-  const lockedMessage = "Advertisement — please wait";
-  dom.messageInput.placeholder = locked ? lockedMessage : "Ask anything…";
-  dom.messageInput.setAttribute(
-    "aria-label",
-    locked ? lockedMessage : "Message"
-  );
-  const canSend = !locked && !state.isStreaming &&
+  // Only streaming blocks sending; ads no longer lock the composer.
+  const canSend = !state.isStreaming &&
     (dom.messageInput.value.trim().length > 0 || Boolean(state.pendingAttachment));
   dom.sendBtn.disabled = !canSend;
-  dom.sendBtn.title = locked ? lockedMessage : "Send message";
-  dom.attachBtn.disabled = locked || state.isStreaming;
-  if (locked) dom.composer.classList.add("locked");
-  else dom.composer.classList.remove("locked");
+  dom.sendBtn.title = "Send message";
+  dom.attachBtn.disabled = state.isStreaming;
+  // While generating, the send button swaps to a Stop button.
+  dom.sendBtn.hidden = state.isStreaming;
+  if (dom.stopBtn) dom.stopBtn.hidden = !state.isStreaming;
 }
 /* ==========================================================
    8. MESSAGE HANDLING / SEND
@@ -1410,16 +1148,8 @@ async function sendMessage() {
     showToast("Please wait for the current reply to finish.");
     return;
   }
-  if (state.adBreakActive) {
-    showAdBreak();
-    return;
-  }
-  if (state.pendingAdBreak) {
-    showAdBreak();
-    return;
-  }
   if (!API_PROVIDERS.some(isProviderConfigured)) {
-    showToast("Set your API URL, key, and model in the configuration module to start chatting.");
+    showToast("The AI service is not configured. Check the API providers to start chatting.");
     return;
   }
 
@@ -1479,7 +1209,7 @@ async function sendMessage() {
 
   // Build context: system + recent messages from THIS chat only.
   const apiMessages = [{ role: SYSTEM_ROLE, content: SYSTEM_PROMPT }];
-  const recent = chat.messages.slice(-MAX_CONTEXT_MESSAGES);
+  const recent = chat.messages.slice();
   for (const m of recent) {
     const role = m.role === USER_ROLE ? USER_ROLE : AI_ROLE;
     const content = role === USER_ROLE
@@ -1491,6 +1221,7 @@ async function sendMessage() {
   const assistantMsg = { role: AI_ROLE, content: "", timestamp: Date.now() };
   chat.messages.push(assistantMsg);
 
+  let adDue = false;
   try {
     const res = await streamCompletion(apiMessages);
     // Final safety net: collapse any growing repeated stanzas so the saved
@@ -1506,19 +1237,28 @@ async function sendMessage() {
     chat.updatedAt = Date.now();
     await persistChat(chat);
 
-    // Every second successful AI reply completes two chat cycles.
-    recordSuccessfulReply();
+    // Show the native ad after every successful reply.
+    adDue = true;
   } catch (err) {
-    if (assistantMsg.content === "") {
+    const stopped = Boolean(err && err.userStopped);
+    if (stopped) {
+      // Keep whatever has streamed so far instead of throwing it away.
+      const partial = filterThinkingContent(streamContent).content;
+      assistantMsg.content = partial || "Stopped.";
+      chat.updatedAt = Date.now();
+      await persistChat(chat);
+    } else if (assistantMsg.content === "") {
       const idx = chat.messages.indexOf(assistantMsg);
       if (idx > -1) chat.messages.splice(idx, 1);
       chat.updatedAt = Date.now();
       await persistChat(chat);
     }
     renderActiveChat();
-    showFriendlyError(err);
+    if (!stopped) showFriendlyError(err);
   } finally {
     state.isStreaming = false;
+    state.stopRequested = false;
+    state.controller = null;
     state.activeRequestChatId = null;
     removeTyping();
     dom.streamStatus.hidden = true;
@@ -1530,10 +1270,7 @@ async function sendMessage() {
     renderChatList();
   }
   renderActiveChat();
-  if (state.pendingAdBreak) {
-    state.pendingAdBreak = false;
-    showAdBreak();
-  }
+  if (adDue) showAdBreak();
 }
 async function persistChat(chat) {
   // Guard: if this chat was deleted mid-request, do not write it back.
@@ -1564,36 +1301,61 @@ function showFriendlyError(err) {
   console.debug("Request error:", err && err.message ? err.message : err, err);
 }
 
+function stopStreaming() {
+  if (!state.isStreaming) return;
+  state.stopRequested = true;
+  if (state.controller) {
+    try { state.controller.abort(); } catch (err) { /* already aborted */ }
+  }
+}
+
 function streamCompletion(apiMessages) {
-  // The user chooses the model. If that model fails on one account,
-  // try the same selected model on each provider/account in order.
+  // Auto-selected model first, then the rest of the pool. The real model IDs
+  // are never surfaced to users; only the "Umrani 2.2" brand is shown.
   const providers = API_PROVIDERS.filter(isProviderConfigured);
-  const model = state.selectedModel;
+  const modelOrder = [
+    state.activeModel,
+    ...MODEL_POOL.filter((model) => model !== state.activeModel)
+  ].filter(Boolean);
 
   return (async () => {
     let lastErr = null;
     const tried = [];
 
-    for (const provider of providers) {
-      if (!getProviderModels(provider).includes(model)) continue;
-      tried.push(provider.name + " / " + model);
+    for (const model of modelOrder) {
+      for (const provider of providers) {
+        if (state.stopRequested) break;
+        if (!getProviderModels(provider).includes(model)) continue;
+        tried.push(provider.name + " / " + model);
 
-      // Start each attempt with a clean slate: discard any partial
-      // output the previous (failed) attempt left in the live bubble.
-      streamContent = "";
-      resetStreamBubble();
+        // Start each attempt with a clean slate: discard any partial
+        // output the previous (failed) attempt left in the live bubble.
+        streamContent = "";
+        resetStreamBubble();
 
-      try {
-        const result = await streamWithProvider(apiMessages, provider, model);
-        state.modelAvailability[model] = true;
-        updateModelUi();
-        console.log("Umrani responded via provider '" + provider.name + "' (model '" + model + "').");
-        return result;
-      } catch (err) {
-        lastErr = err;
-        console.warn("Attempt '" + provider.name + "' / '" + model + "' failed; switching provider:",
-          err && (err.message || err.userMessage) ? (err.message || err.userMessage) : err);
+        try {
+          const result = await streamWithProvider(apiMessages, provider, model);
+          state.activeModel = model;
+          updateComposerModelLabel();
+          console.log("Umrani responded via provider '" + provider.name + "' (model '" + model + "').");
+          return result;
+        } catch (err) {
+          lastErr = err;
+          if (state.stopRequested) {
+            console.log("Umrani: generation stopped by the user.");
+            break;
+          }
+          console.warn("Attempt '" + provider.name + "' / '" + model + "' failed; switching:",
+            err && (err.message || err.userMessage) ? (err.message || err.userMessage) : err);
+        }
       }
+      if (state.stopRequested) break;
+    }
+
+    if (state.stopRequested) {
+      const stopped = new Error("Stopped by user.");
+      stopped.userStopped = true;
+      throw stopped;
     }
 
     // No attempts at all — nothing was configured properly.
@@ -1601,12 +1363,9 @@ function streamCompletion(apiMessages) {
       throw { userMessage: HIGH_LOAD_MESSAGE };
     }
 
-    // The selected model failed on every configured provider.
-    state.modelAvailability[model] = false;
-    updateModelUi();
     const detail = tried.join(" → ");
-    console.error("Selected model failed on all providers:", detail, lastErr);
-    const fail = new Error("Selected model failed on all providers (" + detail + ").");
+    console.error("All models failed on all providers:", detail, lastErr);
+    const fail = new Error("All models failed on all providers (" + detail + ").");
     fail.userMessage = HIGH_LOAD_MESSAGE;
     throw fail;
   })();
@@ -1939,75 +1698,6 @@ function updateStreamBubble() {
 }
 
 /* ==========================================================
-   10. TWO-CHAT AD BREAK UI
-   ----------------------------------------------------------
-   An inline ad card appears between messages after every two
-   complete chat cycles. No full-screen overlay is used.
-   ========================================================== */
-function updateAdBreakWarning() {
-  if (!dom.adBlockWarning) return;
-  dom.adBlockWarning.hidden = !state.adBlockDetected;
-}
-
-function scheduleAdClose() {
-  if (!state.adBreakActive ||
-      state.adBlockDetected !== false ||
-      state.adCloseScheduled) return;
-  const closeButton = document.getElementById("adsterraCloseButton");
-  const shell = document.getElementById("adsterraAdShell");
-  if (!closeButton || !shell) return;
-
-  state.adCloseScheduled = true;
-  state.adCloseAllowedAt = Date.now() + 500;
-  window.setTimeout(() => {
-    if (!state.adBreakActive || state.adBlockDetected) return;
-    closeButton.hidden = false;
-    closeButton.focus({ preventScroll: true });
-    shell.classList.remove("adsterra-ad-highlight");
-  }, 500);
-}
-
-function showAdBreak() {
-  const wasActive = state.adBreakActive;
-  savePendingAd(true);
-  state.adBreakActive = true;
-  updateComposerState();
-  updateAdBreakWarning();
-
-  // Do not restart the 0.5-second close delay while this inline ad is active.
-  if (wasActive) return;
-
-  const shell = document.getElementById("adsterraAdShell");
-  const closeButton = document.getElementById("adsterraCloseButton");
-  if (!shell || !closeButton) {
-    showToast("Advertisement is unavailable. You can continue chatting.");
-    finishAdBreak();
-    return;
-  }
-
-  // Insert the reusable ad shell directly after the latest chat messages.
-  dom.messages.appendChild(shell);
-  shell.hidden = false;
-  shell.classList.add("inline-ad-mode", "adsterra-ad-highlight");
-  closeButton.hidden = true;
-  shell.scrollIntoView({ behavior: "smooth", block: "center" });
-  // Wait two paint frames so Chrome has measured the visible container
-  // before Adsterra builds its image/card layout.
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(ensureNativeBannerLoaded);
-  });
-}
-
-function finishAdBreak(clearPending = true) {
-  state.adBreakActive = false;
-  state.adCloseScheduled = false;
-  state.adCloseAllowedAt = 0;
-  if (clearPending) savePendingAd(false);
-  updateComposerState();
-  dom.messageInput.focus();
-}
-
-/* ==========================================================
    12. VOICE INPUT (Web Speech API)
    ----------------------------------------------------------
    Starts only on explicit user action. Recognized text is placed
@@ -2112,6 +1802,7 @@ function initEventListeners() {
     }
   });
   dom.sendBtn.addEventListener("click", sendMessage);
+  if (dom.stopBtn) dom.stopBtn.addEventListener("click", stopStreaming);
   dom.attachBtn.addEventListener("click", () => {
     if (!dom.attachBtn.disabled) dom.fileInput.click();
   });
@@ -2147,45 +1838,6 @@ function initEventListeners() {
   // Voice
   dom.micBtn.addEventListener("click", toggleVoice);
 
-  // Closing the automatically shown ad ends only this short ad break.
-  document.addEventListener("umrani:display-ad-closed", () => {
-    if (!state.adBreakActive) return;
-    const allowed = state.adBlockDetected === false &&
-      state.adCloseAllowedAt > 0 &&
-      Date.now() >= state.adCloseAllowedAt;
-    if (!allowed) {
-      // Ignore scripted/early closes and restore the required inline ad.
-      state.adBreakActive = false;
-      state.adCloseScheduled = false;
-      showAdBreak();
-      showToast("Please wait for the advertisement.");
-      return;
-    }
-    if (state.glmUnlockFlow) completeGlmUnlockAd();
-    else finishAdBreak();
-  });
-  // A pending ad created in another tab must also block this tab.
-  window.addEventListener("storage", (event) => {
-    if (event.key === AD_PENDING_KEY && event.newValue === "1") {
-      savePendingAd(true);
-      if (!state.adBreakActive) showAdBreak();
-    }
-    if (event.key === GLM_AD_VIEWS_KEY) {
-      const value = Number(event.newValue);
-      state.glmAdViews = Number.isFinite(value)
-        ? Math.max(0, Math.min(REQUIRED_GLM_AD_VIEWS, Math.floor(value)))
-        : 0;
-      updateModelUi();
-    }
-    if (event.key === MODEL_SELECTION_KEY && event.newValue) {
-      const valid = MODEL_OPTIONS.some((item) => item.model === event.newValue);
-      if (valid && (event.newValue !== FALLBACK_MODEL || isGlmUnlocked())) {
-        state.selectedModel = event.newValue;
-        updateModelUi();
-      }
-    }
-  });
-
   // Scroll awareness (auto-scroll pause when reading up)
   dom.chatArea.addEventListener("scroll", markUserScroll);
 
@@ -2195,12 +1847,11 @@ function initEventListeners() {
   window.addEventListener("offline", () => showToast("You are offline. Please check your internet connection."));
   window.addEventListener("online", () => {
     showToast("Back online.");
-    checkModelHealth();
+    testModelsAndPick();
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden &&
-        Date.now() - state.lastModelHealthCheck >= MODEL_HEALTH_INTERVAL_MS) {
-      checkModelHealth();
+    if (!document.hidden && navigator.onLine && !state.modelTesting) {
+      testModelsAndPick();
     }
   });
 }
@@ -2213,11 +1864,8 @@ function initEventListeners() {
    ========================================================== */
 async function init() {
   initDom();
-  loadAdReplyCounter();
-  loadModelPreferences();
-  initModelSelector();
-  loadSocialBar();
-  loadDesktopPopunder();
+  updateComposerModelLabel();
+  testModelsAndPick();
 
   try {
     await openDB();
@@ -2239,10 +1887,12 @@ async function init() {
   renderActiveChat();
   updateComposerState();
   autoGrowInput();
-  if (state.pendingAdBreak) showAdBreak();
-  window.setTimeout(checkModelHealth, 0);
-  window.setInterval(checkModelHealth, MODEL_HEALTH_INTERVAL_MS);
 
+  window.setInterval(() => {
+    if (!document.hidden && navigator.onLine && !state.isStreaming && !state.modelTesting) {
+      testModelsAndPick();
+    }
+  }, MODEL_RECHECK_INTERVAL_MS);
 }
 
 if (document.readyState === "loading") {
