@@ -1280,3 +1280,7 @@ svg.ui-icon[data-icon="brand"] { stroke-width: 1.9 !important; }
 .reply-notice { margin-top: 12px; color: var(--text-secondary); font-family: var(--font-main); font-size: 13px; line-height: 20px; }
 /* Streaming/final rerenders must not replay an opacity-zero entrance. */
 .msg.ai { animation: none; }
+
+/* Ad delivery states: no permanent empty shells; no-fill hides the shell. */
+.ad-delivery-status { margin: 12px 0; color: var(--text-secondary); font-family: var(--font-main); font-size: 13px; }
+.ad-delivery-status[hidden] { display: none; }

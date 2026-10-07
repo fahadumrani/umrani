@@ -1,4 +1,4 @@
-# Umrani — GitHub Pages edition (1.3.1)
+# Umrani — GitHub Pages edition (1.3.2)
 
 **Static frontend. No application server, localhost launcher, Cloudflare, Vercel, Netlify or `.env` setup required.** The browser-ready bundle is included.
 
@@ -93,8 +93,22 @@ Reply actions are functional, not decorative: feedback stays in local chat histo
 
 Run `npm run test:reference` for these interactions. Latest changed files, test scope and limitations: `docs/reference-layout.md`. Earlier theme/icon/header QA documents describe their respective historical updates.
 
-## Latest streaming-continuity fix (v58 assets)
+## Streaming-continuity fix (preserved from v58)
 
 Initial answer text is no longer automatically erased/restarted by a provider fallback after output has begun. A broken stream keeps the partial reply with an explicit interruption notice; use Regenerate to try again. Pre-answer fallback still works. Late thinking-only events cannot blank an existing answer, and final AI reply rerenders do not replay an opacity-zero animation.
 
 Run `npm run test:streaming` for the new mocked cases. See `docs/streaming-fix.md` for behavior changes, verification and remaining audit limits. This release fixes the reported continuity path; it does not claim every audit finding is resolved.
+
+## Live-website bug fixes (v59 assets / 1.3.2)
+
+- Fractional and parenthesized quadratic expressions are parsed as bounded polynomial arithmetic: `plot y=x^2/2`, `plot y=(x-2)^2`, `plot y=1/2*x^2+3/4*x-1/8`. No `eval`/generated executable code. Unsupported expressions receive a clear error, never a silently changed equation.
+- Plot axes use range-aware precision and scale padding; small ranges no longer label every tick zero. Nonfinite/tiny unsafe geometry is rejected explicitly.
+- Historical/future currency requests do not receive the latest feed as an answer. Historical lookup is not implemented: the app clearly explains that limit and links to SBP records. Current indicative rates retain their source and timestamp.
+- Labelled HTTP(S)/mailto Markdown links render as links, including ordinary parenthesized URL paths. Code spans and unsafe protocols remain inert.
+- Mobile/tablet drawer focus is contained; covered background controls are inert. Escape/close restores focus. Desktop sidebar behavior is retained. Delete dialogs have an accessible label.
+- Explicit Wikipedia requests extract the topic and return the retrieved excerpts/source directly instead of allowing a model to claim it cannot browse. Ordinary chat can still use bounded excerpts. Stop aborts the lookup. This remains encyclopedia lookup, **not full-web/live-news search**.
+- Ads have loading/rendered/error/no-fill states. Failed/no-fill requests remove the empty shell; a later completed reply can try again. Parent messages are checked against the actual iframe and per-frame channel. The script URL, container ID and opaque-origin sandbox are preserved. **Actual ad inventory, approved domain and provider compatibility remain external dependencies; this release does not guarantee paid ads will fill.**
+
+Prebuilt v59 assets are included. No backend or new hosting platform is required. Do not add `.env` or a localhost server to deploy this app. Original browser API keys remain unchanged and public as requested.
+
+Run `npm run test:livebugs` for the new mock-only browser regressions. See `docs/live-bugfixes.md` and `docs/test-results.txt` for verification and limits.

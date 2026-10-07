@@ -9,6 +9,32 @@ export function isDateQuestion(query) {
 export function isCurrencyQuestion(query) {
   return /(?:pkr|pakistan(?:i)?\s+rupee|روپیہ|روپے)/i.test(query) && /(?:usd|dollar|dollor|ڈالر)/i.test(query) && /(?:rate|exchange|today|aaj|aj|قیمت|ریٹ)/i.test(query);
 }
+export function currencyIntent(query, now=new Date()) {
+  if(!isCurrencyQuestion(query))return null;
+  const text=String(query);
+  const years=[...text.matchAll(/\b(?:19|20)\d{2}\b/g)].map(m=>Number(m[0]));
+  if(years.some(y=>y>now.getFullYear()))return 'forecast';
+  const relative=/\b(?:yesterday|last\s+(?:week|month|year)|ago|historical|history|previous|past|was|were|in\s+\d{4})\b|پچھل|گزشتہ|kal\s+(?:ka|ki)|pichl|guzishta/i.test(text);
+  if(relative || years.some(y=>y!==now.getFullYear()) || /\b\d{4}-\d{1,2}-\d{1,2}\b/.test(text))return 'historical';
+  if(/\b(?:tomorrow|forecast|predict|next\s+(?:week|month|year))\b|آئندہ|اگلے/i.test(text))return 'forecast';
+  return 'current';
+}
+export function historicalCurrencyAnswer() {
+  return 'You asked for a historical USD/PKR rate. The available feed only provides the latest reference rate, so I will not substitute today’s rate. For the requested period, use the State Bank of Pakistan historical exchange-rate records: https://www.sbp.org.pk/ecodata/index2.asp . Specify the exact date and whether you need interbank, bank, or open-market rates.';
+}
+export function isExplicitWikiRequest(query) { return /\b(?:wikipedia|wiki)\b|ویکیپیڈیا/i.test(query); }
+export function normalizeWikiQuery(query) {
+  const text=String(query).trim();
+  if(!isExplicitWikiRequest(text))return text.slice(0,400);
+  const subject=text.replace(/^\s*(?:please\s+)?(?:search|look\s+up|lookup|find|check)\s+(?:on\s+)?(?:wikipedia|wiki)\s*(?:for|about|on)?\s*/i,'')
+    .replace(/\s+(?:and|then)\s+(?:give|provide|write|summari[sz]e|tell)\b[\s\S]*$/i,'')
+    .replace(/^\s*(?:wikipedia|wiki)\s*(?:for|about|on)?\s*/i,'').trim().replace(/[?!.]+$/,'');
+  return (subject || text).slice(0,400);
+}
+export function wikiExcerptAnswer(result) {
+  if(!result.available || !Array.isArray(result.results) || !result.results.length)return null;
+  return 'Wikipedia reference excerpts (not a full-web or live-news search):\n\n'+result.results.map(r=>`**${r.title}**\n\n${r.snippet}\n\nSource: ${r.url}`).join('\n\n')+'\n\nRetrieved: '+result.retrievedAt+'. Articles may be incomplete or outdated.';
+}
 export function currencyContext(data, now = Date.now()) {
   const rate = Number(data?.rates?.PKR);
   const updated = Number(data?.time_last_update_unix) * 1000;
@@ -25,7 +51,7 @@ export function currencyAnswer(rate) {
 }
 // GitHub Pages-compatible public encyclopedia lookup. No proxy, JSONP or keys.
 export async function searchWeb(query, { fetchFn = fetch, signal } = {}) {
-  const queryText = String(query || '').trim().slice(0, 400);
+  const queryText = normalizeWikiQuery(query || '');
   if (!queryText) return { available: false, context: '', reason: 'Enter a query for public lookup.' };
   const language = /[\u0600-\u06ff]/.test(queryText) ? 'ur' : 'en';
   const endpoint = `https://${language}.wikipedia.org/w/api.php`;
@@ -45,15 +71,17 @@ export async function searchWeb(query, { fetchFn = fetch, signal } = {}) {
     const scope = 'Scope: encyclopedia excerpts only, NOT full-web or verified live-news search. Retrieval time is not an article publication date.';
     let context = scope;
     let included = 0;
+    const includedResults = [];
     for (const result of results) {
       const article = `\n\n${included+1}. ${result.title}\n${result.snippet.slice(0,700)}\nSource: ${result.url}`;
       if (new TextEncoder().encode(context + article).length > 6500) break;
-      context += article; included++;
+      context += article; includedResults.push({...result,snippet:result.snippet.slice(0,700)}); included++;
     }
     if (!included) return { available:false, context:'', reason:'Public results were too large to use safely.' };
-    return { available: true, provider: 'Wikipedia encyclopedia lookup', retrievedAt: new Date().toISOString(), context };
+    return { available: true, provider: 'Wikipedia encyclopedia lookup', retrievedAt: new Date().toISOString(), context, results: includedResults };
 
   } catch {
+    if(signal?.aborted) return {available:false,context:'',reason:'Lookup stopped.',stopped:true};
     return { available: false, context: '', reason: 'Public lookup failed or was blocked by the network. No fresh evidence was retrieved; no local server is required.' };
   }
 }

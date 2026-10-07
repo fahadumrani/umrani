@@ -57,7 +57,7 @@ test('unqualified parabola request makes its default assumption explicit', () =>
   assert.equal(result.assumption, true); assert.equal(result.spec.a, 1);
   const equation = parabolaRequest('plot parabola y=2x^2-4x+1');
   assert.deepEqual([equation.spec.a,equation.spec.b,equation.spec.c], [2,-4,1]);
-  assert.equal(parabolaRequest('plot parabola y=(x-2)^2'), null);
+  assert.deepEqual([parabolaRequest('plot parabola y=(x-2)^2').spec.a, parabolaRequest('plot parabola y=(x-2)^2').spec.b, parabolaRequest('plot parabola y=(x-2)^2').spec.c], [1,-4,4]);
   assert.equal(parabolaRequest('plot parabola y=x²−4').spec.c,-4);
   assert.equal(parabolaRequest('plot parabola y=x²sin(x)'),null);
   const ranged=parabolaRequest('plot y=x^2 from -2 to 3');

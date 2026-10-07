@@ -1,100 +1,9 @@
-STREAMING CONTINUITY FIX — MOCKED QA, NO LIVE CREDENTIAL CALLS
+Umrani 1.3.2 / v59 — local offline regression verification
+Unit tests: 71 passed, 0 failed
+Syntax checks: passed
+All six browser suites completed successfully. AI, Wikipedia, currency and ads are mocked in browser tests; live inventory/key validity is not certified.
 
-
-> umrani@1.3.1 test
-> node scripts/test.mjs
-
-✔ classifies cumulative and duplicate stream chunks (0.857878ms)
-✔ collapses an exact triple response (0.365274ms)
-✔ leaves a normal response unchanged (0.313536ms)
-✔ trims repeated sentence loops (0.263002ms)
-✔ detects Dahl capacity notices returned as successful text (0.336013ms)
-✔ removes complete and partial private thinking blocks (1.078332ms)
-✔ tiny repeated deltas are not dropped (1.665287ms)
-✔ stream classifier preserves case and meaningful whitespace (0.154238ms)
-✔ SSE parser reconstructs multiline JSON, comments and split CRLF (0.415703ms)
-✔ SSE parser flushes an unterminated final event only once (0.742373ms)
-✔ SSE parser rejects oversized buffers and aggregate events (0.48136ms)
-✔ bounded JSON reader preserves split UTF-8 and rejects invalid JSON (24.307801ms)
-✔ bounded JSON reader cancels a response exceeding its limit (0.576425ms)
-✔ probe falls back on oversized responses and sends the account authorization header (1.238449ms)
-✔ reported context estimate excludes removed orphan assistant messages (0.345054ms)
-✔ device date context includes the current local date and time zone (16.231821ms)
-✔ USD PKR rate lookup validates freshness, currency base and direction (1.412557ms)
-✔ public lookup works in static/file mode and builds trusted article URLs (24.577026ms)
-✔ empty/blocked public lookup is explicitly unavailable, not fake live evidence (1.405679ms)
-✔ Urdu queries use the Urdu API and untrusted URLs cannot override source host (0.75088ms)
-✔ quadratic curve computes mathematically correct vertex and sample values (0.488048ms)
-✔ plot specification rejects unsafe and nonfinite inputs (0.316054ms)
-✔ unqualified parabola request makes its default assumption explicit (2.386155ms)
-✔ context preserves short history and multilingual estimates are conservative (1.48263ms)
-✔ context trims old messages, not saved originals; rejects oversized current attachment (1.420614ms)
-✔ probe skips unsupported model and falls back after HTTP and payload errors (1.53921ms)
-✔ probe timeout can fall back, and shared budget bounds attempts (10.900439ms)
-✔ CSP and every parent-page script / external stylesheet has SRI (2.563224ms)
-✔ bundle retains requested credentials but has no JSONP or raw SVG sink (1.795081ms)
-✔ creates unique-looking chat ids (0.870913ms)
-✔ detects RTL text and estimates tokens (0.314062ms)
-✔ formats one-line titles (0.213377ms)
-✔ every standalone icon matches the local runtime source (11.271049ms)
-✔ icon generator rejects unknown identifiers, injected classes and invalid sizes (0.460316ms)
-✔ AI branding is present in header and sidebar without changing the app title (2.685768ms)
-✔ build synchronizes static, standalone and dynamic icons without remote dependencies (1.404331ms)
-✔ reference layout excludes marked Share/account/Greeting dropdown controls (4.697148ms)
-✔ reference keeps existing real composer controls and safe reply actions (2.692915ms)
-✔ regeneration retains the original on failure and never duplicates the user turn (1.754745ms)
-✔ static bundle has no local API or server requirement (5.689702ms)
-✔ root and repository-subpath assets use relative URLs (1.352006ms)
-✔ static ads do not execute third-party scripts on direct navigation (1.955773ms)
-✔ multilingual lookup evidence remains inside the context byte budget (26.400076ms)
-✔ HTML has no model selector and shows a single brand label (7.336825ms)
-✔ HTML has a loading screen and KaTeX assets (2.472277ms)
-✔ input has no character limit (0.762906ms)
-✔ only the Native Banner ad remains; smartlink, bait and warning removed (1.659891ms)
-✔ ad shows after completed replies and never locks the composer (1.350249ms)
-✔ config keeps ten browser-side accounts as requested (1.565436ms)
-✔ auto-selects the fastest model without exposing its real id (1.273787ms)
-✔ streaming falls back across models then providers (1.349948ms)
-✔ uses token-budgeted context without a fixed message cap (0.845991ms)
-✔ renders Mermaid graphs as real diagrams (1.8707ms)
-✔ web search is always on with no toggle (0.96954ms)
-✔ adds a Deep Think toggle that enables step-by-step reasoning (0.884848ms)
-✔ renders math formulas and derivations via KaTeX (0.815694ms)
-✔ code blocks use the light app background, not black (0.803681ms)
-✔ streaming status sits above the input, not beside the About Developer pill (1.994629ms)
-✔ shows a Stop button while generating and aborts the stream (0.94345ms)
-✔ editorial tokens include exact light/dark surfaces and safe font fallbacks (5.339929ms)
-✔ legacy chromatic palette is restricted to brand-only tokens (1.762734ms)
-✔ generated CSS tokens stay synchronized and functional visibility rules remain (2.695204ms)
-✔ light theme remains the default even on dark-preferring devices (1.280437ms)
-ℹ tests 63
-ℹ suites 0
-ℹ pass 63
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 792.802228
-
-
-
-> umrani@1.3.1 test:streaming
-> node scripts/test-streaming.mjs
-
-PASS: answer text survives late reasoning events; status never moves back to Thinking
-PASS: empty/reasoning-only updates never blank an existing answer
-PASS: pre-answer fallback still works and capacity notices never flash as answer text
-PASS: network failure after answer text preserves the partial reply instead of erasing/restarting it
-PASS: interrupted marker and partial answer persist across reload; no final opacity-zero replay/ad
-PASS: failed partial regeneration keeps the original answer
-PASS: chat-owner and request-epoch guards prevent stale/wrong-chat painting
-PASS: throttled final chunk is painted even without another delta; no uncaught errors
-
-
-
-> umrani@1.3.1 test:browser
-> node scripts/test-browser.mjs
-
+General browser: 21 PASS lines (some lines summarize multiple cases)
 PASS: legacy migration preserves attachments and splits metadata/message rows
 PASS: dialog card/background click behavior
 PASS: semantic heading levels and user-message RTL
@@ -117,19 +26,28 @@ PASS: fresh timestamped USD/PKR reference feed, correct conversion directions
 PASS: unqualified parabola produces a real computed x–y curve
 PASS: invalid/partial Mermaid cannot leak error graphics or collapse app layout
 
-> umrani@1.3.1 test:file
-> node scripts/test-file-mode.mjs
+New live-bug regressions: 9 PASS lines (some lines summarize multiple cases)
+PASS: fractional equation renders the correct graph and small-range tick labels stay distinct
+PASS: unsupported graph expressions do not silently plot a different equation
+PASS: historical/future intents never fetch the current rate; current feed still works
+PASS: explicit Wikipedia request returns retrieved evidence without a model browsing refusal
+PASS: labelled/parenthesized/adjacent Markdown links render safely; code and unsafe protocols stay inert
+PASS: no-fill removes the blank ad shell; spoofed parent-window messages cannot mark it ready
+PASS: blocked ad scripts fail gracefully; the next ad attempt and manual close still work
+PASS: modal drawer traps focus, inerts the background, restores focus and has no overflow at 390/768px
+PASS: desktop sidebar behavior remains intact; no uncaught browser errors
 
-PASS: file-open mode preserves full-width layout and composer controls
-PASS: file mode answers date and timestamped currency without a model refusal
-PASS: file mode plots an actual quadratic curve
-PASS: public encyclopedia lookup works without a server and discloses its scope
+Streaming continuity: 8 PASS lines (some lines summarize multiple cases)
+PASS: answer text survives late reasoning events; status never moves back to Thinking
+PASS: empty/reasoning-only updates never blank an existing answer
+PASS: pre-answer fallback still works and capacity notices never flash as answer text
+PASS: network failure after answer text preserves the partial reply instead of erasing/restarting it
+PASS: interrupted marker and partial answer persist across reload; no final opacity-zero replay/ad
+PASS: failed partial regeneration keeps the original answer
+PASS: chat-owner and request-epoch guards prevent stale/wrong-chat painting
+PASS: throttled final chunk is painted even without another delta; no uncaught errors
 
-
-
-> umrani@1.3.1 test:reference
-> node scripts/test-reference.mjs
-
+Reference layout/reply actions: 6 PASS lines (some lines summarize multiple cases)
 PASS: reply copy/read-aloud are functional and user-initiated
 PASS: helpful/unhelpful feedback is mutually exclusive and stored only in local history
 PASS: regeneration replaces only the latest reply without duplicating user history or consuming a draft
@@ -137,11 +55,7 @@ PASS: failed regeneration preserves the original answer and history
 PASS: Stop during regeneration restores the previous answer and releases the request lock
 PASS: persistent/collapsed desktop, mobile drawer and dark layouts; no overflow or uncaught errors
 
-
-
-> umrani@1.3.1 test:theme
-> node scripts/test-theme.mjs
-
+Light/dark themes: 11 PASS lines (some lines summarize multiple cases)
 PASS: light 1920x900: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/error/focus/toggle; no overflow; brand colors/sizes preserved
 PASS: light 1280x720: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/error/focus/toggle; no overflow; brand colors/sizes preserved
 PASS: light 768x1024: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/error/focus/toggle; no overflow; brand colors/sizes preserved
@@ -153,3 +67,10 @@ PASS: dark 768x1024: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/
 PASS: dark 390x844: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/error/focus/toggle; no overflow; brand colors/sizes preserved
 PASS: dark 320x740: empty/chat/RTL/code/Mermaid/sidebar/ads/attachment/loading/error/focus/toggle; no overflow; brand colors/sizes preserved
 PASS: 10 theme viewport groups; Light default under both OS preferences and all explicit dark selectors verified.
+
+Static file mode: 4 PASS lines (some lines summarize multiple cases)
+PASS: file-open mode preserves full-width layout and composer controls
+PASS: file mode answers date and timestamped currency without a model refusal
+PASS: file mode plots an actual quadratic curve
+PASS: public encyclopedia lookup works without a server and discloses its scope
+

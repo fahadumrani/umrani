@@ -23,6 +23,7 @@ await context.route('https://**/*', async (route) => {
     const body = process.env.QA_ASSET_DIR ? await readFile(`${process.env.QA_ASSET_DIR}/${name}`) : Buffer.from(await (await fetch(url)).arrayBuffer());
     return route.fulfill({ body, contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' } });
   }
+  if (url.includes('bauval.org')) return route.fulfill({body: "const a=document.createElement('a');a.href='https://example.com';a.textContent='Offline test creative';a.style.cssText='display:block;padding:24px';document.querySelector('[id^=container-]').appendChild(a);",contentType:'text/javascript'});
   if (url.includes('duckduckgo')) return route.fulfill({ json: { RelatedTopics: [] } });
   if (url.includes('wikipedia.org/w/api.php')) return route.fulfill({ json: { query: { pages: [{ title: 'Test source', extract: 'Mock search evidence', index: 1 }] } }, headers: { 'Access-Control-Allow-Origin': '*' } });
   return route.abort(); // Do not contact ads / external font servers during QA.
@@ -122,7 +123,7 @@ try {
   await page.waitForSelector('iframe.ad-frame');
   assert.equal(await page.locator('iframe.ad-frame').getAttribute('sandbox'), 'allow-scripts');
   console.log('PASS: provider fallback, JSON response, KaTeX math, sandboxed ad frame');
-  const adFrame = page.frames().find(frame => frame.url().endsWith('/ads.html'));
+  const adFrame = page.frames().find(frame => new URL(frame.url()).pathname.endsWith('/ads.html'));
   assert.ok(adFrame);assert.equal(await adFrame.evaluate(() => window.origin),'null');
   const directAd=await context.newPage();
   await directAd.goto(base+'ads.html');
@@ -246,6 +247,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#menuBtn').click();
   await page.locator('#newChatBtn').click();
+  await page.waitForFunction(()=>!document.querySelector('.main').inert && !document.querySelector('#sidebar').classList.contains('open'));
   await page.locator('#messageInput').fill('mobile check');
   const mobileLayout = await page.evaluate(() => {
     const button = document.getElementById('sendBtn').getBoundingClientRect();

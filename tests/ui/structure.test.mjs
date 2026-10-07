@@ -108,7 +108,7 @@ test("web search is always on with no toggle", async () => {
   assert.doesNotMatch(m, /function toggleWebSearch\(/);
   assert.match(m, /function webSearch\(/);
   assert.match(m, /Searching the web…/);
-  assert.match(m, /return searchWeb\(query\)/);
+  assert.match(m, /searchWeb\(query,\{signal:controller.signal\}\)/);
   assert.match(m, /dateContext\(\)/);
 });
 
