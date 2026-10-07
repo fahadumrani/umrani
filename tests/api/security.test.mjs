@@ -41,9 +41,10 @@ test('probe timeout can fall back, and shared budget bounds attempts', async () 
   const failed = await probeProviders('m', providers, { budgetMs: 10, now: () => clock, fetchFn: async () => { attempts++; clock = 11; return { ok: false }; } });
   assert.equal(failed, null); assert.equal(attempts, 1);
 });
-test('CSP and every parent-page script / external stylesheet has SRI', async () => {
+test('CSP and pinned rendering dependencies retain SRI; mutable ad source is explicitly allowed', async () => {
   const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
   assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /script-src[^;]*https:\/\/bauval\.org/);
   assert.doesNotMatch(html, /fonts.googleapis.com|<script>/);
   for (const tag of html.match(/<(?:script|link)\b[^>]+(?:cdn\.jsdelivr\.net|vendor\/purify)[^>]*>/g) || []) {
     assert.match(tag, /integrity="sha384-[A-Za-z0-9+/=]+"/);

@@ -120,17 +120,12 @@ try {
   assert.equal(requestCount, 2);
   assert.ok(await page.locator('.msg.ai .bubble h1').count());
   assert.ok(await page.locator('.msg.ai .katex').count());
-  await page.waitForSelector('iframe.ad-frame');
-  assert.equal(await page.locator('iframe.ad-frame').getAttribute('sandbox'), 'allow-scripts');
-  console.log('PASS: provider fallback, JSON response, KaTeX math, sandboxed ad frame');
-  const adFrame = page.frames().find(frame => new URL(frame.url()).pathname.endsWith('/ads.html'));
-  assert.ok(adFrame);assert.equal(await adFrame.evaluate(() => window.origin),'null');
-  const directAd=await context.newPage();
-  await directAd.goto(base+'ads.html');
-  await directAd.waitForFunction(()=>document.body.textContent.includes('only run in the isolated'));
-  assert.equal(await directAd.locator('script[src^="https://bauval"]').count(),0);
-  await directAd.close();
-  console.log('PASS: static ad isolation and direct-navigation execution guard');
+  await page.waitForFunction(()=>document.getElementById('adsterraAdShell').dataset.adStatus==='ready');
+  assert.equal(await page.locator('#umraniNativeBannerScript').count(),1);
+  assert.equal(await page.locator('#umraniNativeBannerScript').getAttribute('data-cfasync'),'false');
+  assert.equal(await page.locator('iframe.ad-frame').count(),0);
+  console.log('PASS: provider fallback, JSON response, KaTeX math, direct Native Banner');
+  console.log('PASS: official ad tag loads once without an opaque-origin cookie restriction');
 
   // Real Mermaid render with explicit DOMPurify defense.
   await page.evaluate(() => {
@@ -267,7 +262,7 @@ try {
   await page.waitForFunction(() => !window.__qa.state.isStreaming && [...document.querySelectorAll('.msg.ai .bubble')].at(-1)?.textContent.includes('Based on your device clock'));
   assert.equal(requestCount, beforeDate);
   console.log('PASS: date question answered using device date without model refusal');
-  await page.waitForSelector('iframe.ad-frame');
+  await page.waitForSelector('#umraniNativeBannerScript',{state:'attached'});
   assert.equal(await page.locator('#adsterraAdShell').count(),1);
   console.log('PASS: reusable ad shell survives repeat replies and feed rerenders');
   await context.route('https://open.er-api.com/**', async (route) => route.fulfill({ json: { result: 'success', base_code: 'USD', rates: { PKR: 280 }, time_last_update_unix: Math.floor(Date.now()/1000) } }));

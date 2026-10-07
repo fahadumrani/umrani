@@ -1036,7 +1036,7 @@ input, textarea { font-family: inherit; }
 
 
 .brand { border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; }
-.ad-frame { width: 100%; height: 200px; border: 0; }
+/* Legacy iframe sizing removed: Native Banner is now direct DOM. */
 .md :is(h1,h2,h3,h4,h5,h6) { margin: 1em 0 .5em; line-height: 1.3; }
 
 /* Composer controls stay within the same input card on every viewport. */
@@ -1284,3 +1284,7 @@ svg.ui-icon[data-icon="brand"] { stroke-width: 1.9 !important; }
 /* Ad delivery states: no permanent empty shells; no-fill hides the shell. */
 .ad-delivery-status { margin: 12px 0; color: var(--text-secondary); font-family: var(--font-main); font-size: 13px; }
 .ad-delivery-status[hidden] { display: none; }
+
+/* Native Banner supplies its own inner layout. Do not flex its card roots. */
+.native-ad-container { display: block; min-height: 0; width: 100%; overflow: hidden; }
+.native-ad-container > * { max-width: 100%; }

@@ -17,7 +17,7 @@ export function initAdsterraCloseButton() {
     if (homeParent && shell.parentNode !== homeParent) {
       homeParent.insertBefore(shell, homeNextSibling);
     }
-    // Finish this ad break and allow the next two-message cycle to begin.
+    // Keep the cached creative; a later completed reply may reveal it again.
     document.dispatchEvent(new CustomEvent("umrani:display-ad-closed"));
   });
 }

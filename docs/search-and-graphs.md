@@ -8,6 +8,6 @@ Mathematical parabola requests use safe computed quadratic plots rather than Mer
 
 Incomplete Mermaid fences are displayed as code during generation. Complete structural diagrams render in a fixed scratch host and are sanitized. Invalid diagram/error DOM is cleaned up instead of becoming body-level flex siblings that shrink the app, fixing the reported narrow-layout/error-icon failure.
 
-The compact composer retains model and Deep Think controls in its footer below the input, matching the latest supplied reference. CSS tokens are embedded/synchronized for reliable file/static loading. The ad shell survives feed rerenders. On static hosting, a dedicated loader refuses direct/top-level ad execution before loading mutable ad-network code.
+The compact composer retains model and Deep Think controls in its footer below the input, matching the latest supplied reference. CSS tokens are embedded/synchronized for reliable file/static loading. The ad shell survives feed rerenders. The current v60 release uses the owner-approved direct Native Banner tag; the old guarded frame loader is unused. See docs/native-ads-v60.md for the security trade-off.
 
 See README for root-file upload and GitHub Pages settings. The browser keys remain original/public, per the owner's request.

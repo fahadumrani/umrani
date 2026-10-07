@@ -1,6 +1,6 @@
 {
   "name": "umrani",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "type": "module",
   "description": "Umrani AI assistant \u2014 vanilla JavaScript frontend",
@@ -13,7 +13,8 @@
     "test:theme": "node scripts/test-theme.mjs",
     "test:reference": "node scripts/test-reference.mjs",
     "test:streaming": "node scripts/test-streaming.mjs",
-    "test:livebugs": "node scripts/test-live-bugfix.mjs"
+    "test:livebugs": "node scripts/test-live-bugfix.mjs",
+    "test:ads": "node scripts/test-direct-ads.mjs"
   },
   "engines": {
     "node": ">=22"

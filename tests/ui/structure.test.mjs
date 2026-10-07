@@ -34,7 +34,8 @@ test("input has no character limit", async () => {
 test("only the Native Banner ad remains; smartlink, bait and warning removed", async () => {
   const h = await html();
   const m = await main();
-  assert.match(m, /frame.setAttribute\("sandbox", "allow-scripts"\)/);
+  assert.match(m, /script.setAttribute\('data-cfasync','false'\)/);
+  assert.doesNotMatch(m, /allow-same-origin|frame.src=/);
   assert.doesNotMatch(m, /SOCIAL_BAR_SRC|POPUNDER_SRC|loadSocialBar|loadDesktopPopunder/);
   assert.match(h, /id="adsterraAdShell"/);
   assert.match(h, /id="adsterraCloseButton"/);

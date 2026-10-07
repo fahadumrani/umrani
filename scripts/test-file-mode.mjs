@@ -15,6 +15,7 @@ await page.route('https://**/*',async route=>{
   const body=process.env.QA_ASSET_DIR?await readFile(`${process.env.QA_ASSET_DIR}/${name}`):Buffer.from(await(await fetch(url)).arrayBuffer());
   return route.fulfill({body,contentType:name.endsWith('.css')?'text/css':'text/javascript',headers:{'Access-Control-Allow-Origin':'*'}});
  }
+ if(url.includes('bauval.org'))return route.fulfill({body:"const a=document.createElement('a');a.href='https://example.com';a.textContent='Offline test native creative';a.style.cssText='display:block;padding:24px';document.querySelector('[id^=container-]').appendChild(a);",contentType:'text/javascript'});
  if(url.includes('inference.dahl.global')) {
   const request=route.request().postDataJSON();if(request.stream)modelCalls++;
   const content=request.stream?'Wikipedia lookup evidence is limited to encyclopedia articles.':'OK';

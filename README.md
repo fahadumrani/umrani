@@ -1,4 +1,4 @@
-# Umrani — GitHub Pages edition (1.3.2)
+# Umrani — GitHub Pages edition (1.3.3)
 
 **Static frontend. No application server, localhost launcher, Cloudflare, Vercel, Netlify or `.env` setup required.** The browser-ready bundle is included.
 
@@ -20,7 +20,7 @@ An **optional manual-only** `.github/workflows/pages.yml` is included. Use it on
 - Timestamped USD/PKR **indicative reference rates**, including the reciprocal conversion and a source link. These are not bank/open-market buy/sell quotes. Stale or failed data is not replaced with an old model rate.
 - **Automatic Wikipedia public lookup** in the browser (English/Urdu), including readable article excerpts and source URLs. No local API/proxy or new search key is required.
 - Safe mathematical **quadratic/parabola** graphs with numeric axes and a computed vertex. Unqualified requests explicitly assume y=x²; valid simple polynomial equations can be parsed locally. Unsupported functions are not silently turned into fake Mermaid charts.
-- Mermaid structural diagrams, KaTeX math, text/code attachments, Urdu directionality, local history, voice input and isolated ads.
+- Mermaid structural diagrams, KaTeX math, text/code attachments, Urdu directionality, local history, voice input and owner-approved direct Native Banner ads.
 - Slim horizontal composer with attachment, voice and send/Stop controls. “Umrani 2.1” and Deep Think now sit in the footer below it, matching the latest reference.
 - Persistent/collapsible desktop sidebar, mobile drawer, neutral user bubbles and open editorial AI replies.
 - Reply copy, browser read-aloud, local helpful/unhelpful feedback and safe latest-reply regeneration.
@@ -31,7 +31,7 @@ An **optional manual-only** `.github/workflows/pages.yml` is included. Use it on
 
 Without a browser-compatible search API/provider or a proxy, GitHub Pages alone cannot provide reliable full-web search. This release does **not** claim to implement it. If public lookup fails due to network/CORS/availability/rate limits or no results, the app says no evidence was retrieved and avoids invented current facts.
 
-External data requests still go to existing public services: Dahl for AI, Wikipedia for article lookup, the currency feed, rendering CDNs and the isolated ad network. “GitHub-only hosting” does not make those public services run inside GitHub.
+External data requests still go to existing public services: Dahl for AI, Wikipedia for article lookup, the currency feed, rendering CDNs and the owner-approved ad network. “GitHub-only hosting” does not make those public services run inside GitHub.
 
 ## Original API keys
 
@@ -41,7 +41,7 @@ All ten original AI account keys are intentionally preserved in `src/config/conf
 
 - Main-page CSP meta policy and pinned SHA-384 SRI rendering dependencies. GitHub Pages cannot add arbitrary CSP/anti-framing headers; no server-only header protections are claimed.
 - Strict Mermaid mode plus explicit SVG sanitization; complete diagrams render in a contained temporary host, and failure DOM is cleaned up. Incomplete streaming fences are not sent to Mermaid.
-- Ads run in an iframe with `sandbox="allow-scripts"` and an opaque origin, never `allow-same-origin`. The static ad loader refuses top-level/non-opaque execution, protecting direct visits to `ads.html` without a server sandbox header. Live ad compatibility/network policy still needs review.
+- **Direct Native Banner mode was explicitly selected by the owner.** The official mutable Adsterra tag now runs in the page and can access page content, cookies and browser storage. This is not an isolated security sandbox. CSP retains pinned renderer protections and explicitly permits the ad source/API; HTTPS creative images/media/frames are allowed. The old guarded `ads.html`/frame loader remain unused legacy files, not the active integration.
 - IndexedDB version 2 splits metadata/messages and migrates existing history in place. Unchanged attachments are not repeatedly written. Deletes cascade; saves/deletes resolve after commit. The physical `BolanAI` identifier is retained so existing history remains available.
 - The newest message/file is rejected if it cannot fit the conservative context budget; saved older history is not deleted. A 3 MiB selectable file is not guaranteed to fit a model request.
 - Avoid editing the same chat simultaneously in several tabs; cross-tab conflict resolution is not implemented. Keep device time accurate for date/feed-freshness checks.
@@ -99,7 +99,7 @@ Initial answer text is no longer automatically erased/restarted by a provider fa
 
 Run `npm run test:streaming` for the new mocked cases. See `docs/streaming-fix.md` for behavior changes, verification and remaining audit limits. This release fixes the reported continuity path; it does not claim every audit finding is resolved.
 
-## Live-website bug fixes (v59 assets / 1.3.2)
+## Previous live-website bug fixes (v59 / 1.3.2; ad integration superseded below)
 
 - Fractional and parenthesized quadratic expressions are parsed as bounded polynomial arithmetic: `plot y=x^2/2`, `plot y=(x-2)^2`, `plot y=1/2*x^2+3/4*x-1/8`. No `eval`/generated executable code. Unsupported expressions receive a clear error, never a silently changed equation.
 - Plot axes use range-aware precision and scale padding; small ranges no longer label every tick zero. Nonfinite/tiny unsafe geometry is rejected explicitly.
@@ -107,8 +107,25 @@ Run `npm run test:streaming` for the new mocked cases. See `docs/streaming-fix.m
 - Labelled HTTP(S)/mailto Markdown links render as links, including ordinary parenthesized URL paths. Code spans and unsafe protocols remain inert.
 - Mobile/tablet drawer focus is contained; covered background controls are inert. Escape/close restores focus. Desktop sidebar behavior is retained. Delete dialogs have an accessible label.
 - Explicit Wikipedia requests extract the topic and return the retrieved excerpts/source directly instead of allowing a model to claim it cannot browse. Ordinary chat can still use bounded excerpts. Stop aborts the lookup. This remains encyclopedia lookup, **not full-web/live-news search**.
-- Ads have loading/rendered/error/no-fill states. Failed/no-fill requests remove the empty shell; a later completed reply can try again. Parent messages are checked against the actual iframe and per-frame channel. The script URL, container ID and opaque-origin sandbox are preserved. **Actual ad inventory, approved domain and provider compatibility remain external dependencies; this release does not guarantee paid ads will fill.**
+- The v59 opaque-origin ad integration was incompatible with this Native Banner SDK’s cookie access. It is replaced by the owner-approved v60 direct integration below. Loading/error/no-fill states remain; ad delivery still depends on provider inventory/network policy.
 
-Prebuilt v59 assets are included. No backend or new hosting platform is required. Do not add `.env` or a localhost server to deploy this app. Original browser API keys remain unchanged and public as requested.
+Prebuilt v60 assets are included. No backend or new hosting platform is required. Do not add `.env` or a localhost server to deploy this app. Original browser API keys remain unchanged and public as requested.
 
 Run `npm run test:livebugs` for the new mock-only browser regressions. See `docs/live-bugfixes.md` and `docs/test-results.txt` for verification and limits.
+
+## Current Native Banner integration (v60 / 1.3.3)
+
+The owner supplied the exact Active Native Banner tag for Approved `umrani.devs.li` and selected **direct embed** after being told about page/storage access.
+
+- Exact official script URL and container ID are used, including `async` and `data-cfasync="false"`.
+- No opaque-origin iframe is used for the active banner, avoiding the SDK’s `document.cookie` security exception.
+- Load one script after the first completed chat reply; preserve its container/creative across later replies and SPA rerenders. No automatic ad clicks or repeated script/impression loops are added.
+- Remove the old eight-second cutoff. A 30-second empty/loading timeout hides an unfilled shell; late creatives can recover. Explicit user close is respected. A script/network error can retry after a later completed reply, but successfully loaded scripts are not reinjected to force fill.
+- CSP explicitly allows `bauval.org` scripts/API requests and HTTPS creative images/media/frames. It does not broadly allow scripts from every HTTPS origin.
+- Original AI keys, logo, theme, graph/rate/search/streaming fixes and static GitHub Pages hosting remain unchanged.
+
+Upload the complete v60 release to your repository root and retain your custom-domain/CNAME setting. The supplied ZIP has not been deployed for you. Rendering assets use v60 cache URLs; verify them after deployment and hard-refresh.
+
+**Limits:** active/approved placements can still have no inventory or be blocked by extensions/network policy. Real direct-tag creatives rendered in the isolated compatibility test; a separate full-build remote test encountered `ERR_TUNNEL_CONNECTION_FAILED`, so universal/live production delivery is not certified. Never click your own ads for testing.
+
+New checks: `npm run test:ads`. Full verification, selected security trade-off and changed files: `docs/native-ads-v60.md`.

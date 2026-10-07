@@ -910,7 +910,7 @@ function initAdsterraCloseButton() {
     if (homeParent && shell.parentNode !== homeParent) {
       homeParent.insertBefore(shell, homeNextSibling);
     }
-    // Finish this ad break and allow the next two-message cycle to begin.
+    // Keep the cached creative; a later completed reply may reveal it again.
     document.dispatchEvent(new CustomEvent("umrani:display-ad-closed"));
   });
 }
@@ -1036,7 +1036,7 @@ const state = {
   deepThinkEnabled: false
 };
 
-// Ad network is confined to ads.html, a sandboxed opaque-origin frame.
+// Owner-approved direct Native Banner. It executes with page/storage access.
 
 /* ---------- Model testing / auto-selection ----------
    The exact model identity is hidden from users. On startup Umrani probes
@@ -1078,63 +1078,72 @@ async function testModelsAndPick() {
 }
 
 /* ---------- Inline ad (Native Banner) ----------
-   Adsterra's Native Banner is requested inline after every chat reply. The
-   composer is never locked: closing the ad is voluntary and optional. */
-let currentAdDelivery=null;
-function finishAdDelivery(status, detail='') {
-  const delivery=currentAdDelivery;
-  if(!delivery)return;
-  clearTimeout(delivery.timer);delivery.timer=null;
-  const shell=document.getElementById('adsterraAdShell');
-  const label=document.getElementById('adDeliveryStatus');
+   One direct Native Banner is loaded after the first completed reply and
+   reused across later replies. The composer is never locked. */
+// Direct Native Banner integration explicitly approved by the owner.
+// Mutable ad scripts have page/storage access; this is NOT a security sandbox.
+const nativeAd={started:false,status:'idle',observer:null,timer:null,owner:null,dismissed:false};
+function setNativeAdStatus(status) {
+  nativeAd.status=status;
+  const shell=document.getElementById('adsterraAdShell'),label=document.getElementById('adDeliveryStatus');
+  if(!shell)return;
   shell.dataset.adStatus=status;
+  if(label){label.hidden=status==='ready';label.textContent=status==='loading'?'Loading advertisement…':'Advertisement unavailable.';}
+  if(status==='loading')shell.setAttribute('aria-busy','true');else shell.removeAttribute('aria-busy');
+  if(status==='error'||status==='no-fill')shell.hidden=true;
   if(status==='ready') {
-    if(label)label.hidden=true;
-    shell.removeAttribute('aria-busy');
-    return;
+    clearTimeout(nativeAd.timer);nativeAd.timer=null;
+    if(!nativeAd.dismissed && nativeAd.owner===state.currentChatId && !state.isStreaming)shell.hidden=false;
   }
-  delivery.frame.remove();shell.hidden=true;shell.classList.remove('inline-ad-mode');shell.removeAttribute('aria-busy');
-  if(label){label.hidden=false;label.textContent=detail || 'Advertisement unavailable.';}
-  currentAdDelivery=null;
 }
-window.addEventListener('message',event=>{
-  const ad=currentAdDelivery,data=event.data;
-  // Opaque iframe messages have origin "null"; origin alone is NOT authentication.
-  if(!ad||event.source!==ad.frame.contentWindow||event.origin!=='null'||!data||data.type!=='umrani:ad-status'||data.channel!==ad.channel)return;
-  const shell=document.getElementById('adsterraAdShell');if(shell.hidden)return;
-  if(data.status==='ready') {
-    const height=Number(data.height);
-    if(Number.isFinite(height))ad.frame.style.height=Math.max(120,Math.min(600,height))+'px';
-    finishAdDelivery('ready');
-  } else if(['error','no-fill'].includes(data.status))finishAdDelivery(data.status);
-});
-document.addEventListener('umrani:display-ad-closed',()=>{
-  if(currentAdDelivery){clearTimeout(currentAdDelivery.timer);currentAdDelivery.frame.remove();currentAdDelivery=null;}
-});
+function checkNativeAdRendered() {
+  const container=document.getElementById('container-63ea484e1a293480518c8d527b5e81e3');
+  if(!container)return;
+  const ready=[...container.querySelectorAll('a[href],img,iframe,video')].some(el=>{
+    const rect=el.getBoundingClientRect(),style=getComputedStyle(el);
+    if(style.display==='none'||style.visibility==='hidden'||Number(style.opacity)===0)return false;
+    const shell=document.getElementById('adsterraAdShell');
+    if(!shell.hidden && (rect.width<20||rect.height<12))return false;
+    if(el.tagName==='IMG')return el.complete&&el.naturalWidth>20&&el.naturalHeight>12;
+    if(el.tagName==='A')return /^https?:/i.test(el.href)&&el.textContent.trim().length>2;
+    return true;
+  });
+  if(ready)setNativeAdStatus('ready');
+}
+document.addEventListener('umrani:display-ad-closed',()=>{nativeAd.dismissed=true;});
 function ensureNativeBannerLoaded() {
   const shell=document.getElementById('adsterraAdShell');
   const container=document.getElementById('container-63ea484e1a293480518c8d527b5e81e3');
-  if(!shell||!container||shell.hidden||container.querySelector('iframe'))return;
-  const frame=document.createElement('iframe');frame.title='Advertisement';
-  // Never grant same-origin access to mutable third-party ad code.
-  frame.setAttribute("sandbox", "allow-scripts");frame.referrerPolicy='no-referrer';
-  const channel=crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
-  frame.src='ads.html?channel='+encodeURIComponent(channel);frame.className='ad-frame';
-  const delivery={frame,channel,timer:null};currentAdDelivery=delivery;
-  delivery.timer=setTimeout(()=>{if(currentAdDelivery===delivery)finishAdDelivery('no-fill');},10000);
-  frame.addEventListener('error',()=>{if(currentAdDelivery===delivery)finishAdDelivery('error');});
-  container.replaceChildren(frame);
+  if(!shell||!container||shell.hidden)return;
+  if(nativeAd.started){checkNativeAdRendered();return;}
+  nativeAd.started=true;setNativeAdStatus('loading');
+  if(!nativeAd.observer){
+    nativeAd.observer=new MutationObserver(checkNativeAdRendered);
+    nativeAd.observer.observe(container,{childList:true,subtree:true,attributes:true});
+    container.addEventListener('load',checkNativeAdRendered,true);
+  }
+  // Keep observing after timeout: a late creative can recover without reloading
+  // the provider script or overriding an explicit user close.
+  nativeAd.timer=setTimeout(()=>{if(nativeAd.status==='loading')setNativeAdStatus('no-fill');},30000);
+  const script=document.createElement('script');script.id='umraniNativeBannerScript';script.async=true;
+  script.setAttribute('data-cfasync','false');
+  script.referrerPolicy='strict-origin-when-cross-origin';
+  script.src='https://bauval.org/21/63ea484e1a293480518c8d527b5e81e3';
+  script.onload=checkNativeAdRendered;
+  script.onerror=()=>{clearTimeout(nativeAd.timer);nativeAd.timer=null;nativeAd.started=false;script.remove();setNativeAdStatus('error');};
+  // The official tag's container already exists when the async script executes.
+  document.body.appendChild(script);
 }
 function showAdBreak() {
-  const shell=document.getElementById('adsterraAdShell');
-  if(!shell)return;
-  if(currentAdDelivery){clearTimeout(currentAdDelivery.timer);currentAdDelivery=null;}
-  const container=document.getElementById('container-63ea484e1a293480518c8d527b5e81e3');if(container)container.replaceChildren();
-  const status=document.getElementById('adDeliveryStatus');if(status){status.hidden=false;status.textContent='Loading advertisement…';}
+  const shell=document.getElementById('adsterraAdShell');if(!shell)return;
+  nativeAd.owner=state.currentChatId;nativeAd.dismissed=false;
   const closeButton=document.getElementById('adsterraCloseButton');if(closeButton) closeButton.hidden = false;
-  dom.messages.appendChild(shell);shell.hidden=false;shell.dataset.adStatus='loading';shell.setAttribute('aria-busy','true');shell.classList.add('inline-ad-mode');
-  // Do not move the reader away from the answer just because an ad is loading.
-  requestAnimationFrame(()=>requestAnimationFrame(ensureNativeBannerLoaded));
+  // Preserve rendered contents and the single script across SPA rerenders.
+  // No auto-clicks, impression loops, popunder tags or duplicate ad units.
+  dom.messages.appendChild(shell);shell.classList.add('inline-ad-mode');
+  shell.hidden=nativeAd.status==='error'||nativeAd.status==='no-fill';
+  if(!nativeAd.started || nativeAd.status==='ready')shell.hidden=false;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ensureNativeBannerLoaded();checkNativeAdRendered();}));
 }
 
 /* ==========================================================

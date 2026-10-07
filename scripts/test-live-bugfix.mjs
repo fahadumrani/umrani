@@ -64,16 +64,14 @@ try {
  const adjacent=await page.evaluate(()=>{const el=window.__qa.renderInlineBlocks('[A](https://a.example)[B](https://b.example)');return [...el.querySelectorAll('a')].map(a=>a.textContent);});assert.deepEqual(adjacent,['A','B']);
  console.log('PASS: labelled/parenthesized/adjacent Markdown links render safely; code and unsafe protocols stay inert');
  await page.waitForFunction(()=>document.querySelector('#adsterraAdShell').dataset.adStatus==='ready');
- assert.equal(await page.locator('#adDeliveryStatus').isVisible(),false);assert.equal(await page.locator('iframe.ad-frame').getAttribute('sandbox'),'allow-scripts');
- await page.locator('#adsterraCloseButton').click();
- adMode='empty';await page.evaluate(()=>window.__qa.showAdBreak());await page.waitForSelector('iframe.ad-frame');
- await page.evaluate(()=>window.postMessage({type:'umrani:ad-status',status:'ready',channel:'wrong-channel'},'*'));assert.equal(await page.locator('#adsterraAdShell').getAttribute('data-ad-status'),'loading');
- await page.waitForFunction(()=>document.querySelector('#adsterraAdShell').hidden&&document.querySelector('#adsterraAdShell').dataset.adStatus==='no-fill',null,{timeout:12000});assert.equal(await page.locator('iframe.ad-frame').count(),0);
- console.log('PASS: no-fill removes the blank ad shell; spoofed parent-window messages cannot mark it ready');
- adMode='error';await page.evaluate(()=>window.__qa.showAdBreak());await page.waitForFunction(()=>document.querySelector('#adsterraAdShell').dataset.adStatus==='error');assert.equal(await page.locator('#adsterraAdShell').isVisible(),false);
- adMode='ready';await page.evaluate(()=>window.__qa.showAdBreak());await page.waitForFunction(()=>document.querySelector('#adsterraAdShell').dataset.adStatus==='ready');await page.locator('#adsterraCloseButton').click();
+ assert.equal(await page.locator('#adDeliveryStatus').isVisible(),false);
+ assert.equal(await page.locator('#umraniNativeBannerScript').count(),1);
  assert.equal(await page.locator('iframe.ad-frame').count(),0);
- console.log('PASS: blocked ad scripts fail gracefully; the next ad attempt and manual close still work');
+ await page.locator('#adsterraCloseButton').click();
+ await page.evaluate(()=>window.__qa.showAdBreak());
+ assert.equal(await page.locator('#adsterraAdShell').isVisible(),true);
+ assert.equal(await page.locator('#umraniNativeBannerScript').count(),1);
+ console.log('PASS: direct ad creative renders and survives close/reopen without duplicate scripts');
  for(const width of [390,768]){
   await page.setViewportSize({width,height:844});await page.locator('#menuBtn').click();await page.waitForFunction(()=>document.querySelector('#sidebar').getAttribute('aria-modal')==='true');
   await page.locator('#sidebarClose').focus();await page.keyboard.press('Shift+Tab');
