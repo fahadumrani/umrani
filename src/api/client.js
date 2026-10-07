@@ -104,12 +104,13 @@ function filterThinkingContent(text) {
    The flattened (whitespace-insensitive) check can never misfire on
    normal deltas because they are far shorter than the accumulated text. */
 function classifyChunk(text, accumulated) {
-  const flat = (s) => String(s).replace(/\s+/g, "").toLowerCase();
-  const fa = flat(accumulated);
-  const fd = flat(text);
-  if (!fa) return "fresh";                       // nothing accumulated yet
-  if (fd === fa) return "duplicate";
-  if (fd.length > fa.length && fd.slice(0, fa.length) === fa) return "cumulative";
+  const current = String(accumulated || "");
+  const chunk = String(text || "");
+  // Tiny equal deltas ("ha" + "ha", digits, spaces) can be intentional.
+  // Case/whitespace normalization also changes legitimate code and math.
+  if (current.length < 12) return "fresh";
+  if (chunk === current) return "duplicate";
+  if (chunk.length > current.length && chunk.startsWith(current)) return "cumulative";
   return "fresh";
 }
 

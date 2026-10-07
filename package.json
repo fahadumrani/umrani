@@ -1,12 +1,23 @@
 {
   "name": "umrani",
-  "version": "1.0.0",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
-  "description": "Umrani AI assistant — vanilla JavaScript frontend",
+  "description": "Umrani AI assistant \u2014 vanilla JavaScript frontend",
   "scripts": {
-    "start": "python3 -m http.server 8080",
-    "test:syntax": "node --check src/main.js",
-    "test": "node --test $(find tests -name '*.test.mjs' -print)"
+    "test:syntax": "node --check src/main.js && node --check src/api/live.js && node --check src/ui/plot.js && node --check dist/app.bundle.js",
+    "test": "node scripts/test.mjs",
+    "build": "node scripts/build.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:file": "node scripts/test-file-mode.mjs",
+    "test:theme": "node scripts/test-theme.mjs",
+    "test:reference": "node scripts/test-reference.mjs",
+    "test:streaming": "node scripts/test-streaming.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
   }
 }

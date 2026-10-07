@@ -7,9 +7,7 @@ export function isRtlText(str) {
 }
 
 export function estimateTokens(text) {
-  if (!text) return 0;
-  const s = String(text);
-  const arabChars = (s.match(/[\u0600-\u06FF\u0750-\u077F]/g) || []).length;
-  const other = s.length - arabChars;
-  return Math.ceil(arabChars / 1.3) + Math.ceil(other / 4);
+  // Conservative byte-based bound for byte-level tokenizers. Replace with the
+  // exact model tokenizer if verified budgets / higher utilization are needed.
+  return new TextEncoder().encode(String(text || "")).length;
 }
