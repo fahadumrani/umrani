@@ -111,9 +111,20 @@ function partialReason(finishReason, completed) {
 
 function completionReason(text, finishReason, completed) {
   const reason=partialReason(finishReason,completed);if(reason)return reason;
-  const value=String(text),fences=value.match(/^\s*```[^\n]*$/gm)||[];
-  if(fences.length%2)return 'incomplete_code';
-  if(/<!doctype\s+html|```html\s*\n\s*<html[\s>]/i.test(value)&&!/<\/html\s*>/i.test(value))return 'incomplete_code';
+  const value=String(text),lines=value.split('\n');let open=null,code=[];
+  const htmlIsUnclosed=source=>{
+    const clean=source.replace(/<!--[\s\S]*?-->/g,'').trim();
+    return /^(?:<!doctype\s+html[^>]*>\s*)?<html(?:\s|>)/i.test(clean)&&!/<\/html\s*>/i.test(clean);
+  };
+  for(const line of lines){
+    const fence=/^\s*```([\w+.#-]*)\s*$/.exec(line);
+    if(fence){
+      if(open!==null){if(/^(?:html|htm)$/i.test(open)&&htmlIsUnclosed(code.join('\n')))return 'incomplete_code';open=null;code=[];}
+      else {open=fence[1];code=[];}
+    }else if(open!==null)code.push(line);
+  }
+  if(open!==null)return 'incomplete_code';
+  if(!/```/.test(value)&&htmlIsUnclosed(value))return 'incomplete_code';
   return null;
 }
 
@@ -536,7 +547,6 @@ const COMPOSER_ELEMENT_ID = "composer";
 const MESSAGE_INPUT_ELEMENT_ID = "messageInput";
 const SEND_BUTTON_ELEMENT_ID = "sendBtn";
 const MIC_BUTTON_ELEMENT_ID = "micBtn";
-const ATTACH_BUTTON_ELEMENT_ID = "attachBtn";
 const FILE_INPUT_ELEMENT_ID = "fileInput";
 const ATTACHMENT_BAR_ELEMENT_ID = "attachmentBar";
 const ATTACHMENT_NAME_ELEMENT_ID = "attachmentName";
@@ -987,7 +997,6 @@ function initDom() {
   dom.stopBtn = document.getElementById("stopBtn");
   dom.deepThinkToggle = document.getElementById("deepThinkToggle");
   dom.micBtn = document.getElementById(MIC_BUTTON_ELEMENT_ID);
-  dom.attachBtn = document.getElementById(ATTACH_BUTTON_ELEMENT_ID);
   dom.fileInput = document.getElementById(FILE_INPUT_ELEMENT_ID);
   dom.attachmentBar = document.getElementById(ATTACHMENT_BAR_ELEMENT_ID);
   dom.attachmentName = document.getElementById(ATTACHMENT_NAME_ELEMENT_ID);
@@ -1065,7 +1074,7 @@ async function testModelsAndPick() {
    reused across later replies. The composer is never locked. */
 // Direct Native Banner integration explicitly approved by the owner.
 // Mutable ad scripts have page/storage access; this is NOT a security sandbox.
-const nativeAd={started:false,status:'idle',observer:null,timer:null,owner:null,dismissed:false};
+const nativeAd={started:false,status:'idle',observer:null,timer:null,owner:null,dismissed:false,followBottom:false,scrollRevision:0};
 function setNativeAdStatus(status) {
   nativeAd.status=status;
   const shell=document.getElementById('adsterraAdShell'),label=document.getElementById('adDeliveryStatus');
@@ -1076,7 +1085,12 @@ function setNativeAdStatus(status) {
   if(status==='error'||status==='no-fill')shell.hidden=true;
   if(status==='ready') {
     clearTimeout(nativeAd.timer);nativeAd.timer=null;
-    if(!nativeAd.dismissed && nativeAd.owner===state.currentChatId && !state.isStreaming)shell.hidden=false;
+    if(!nativeAd.dismissed && nativeAd.owner===state.currentChatId && !state.isStreaming){
+      shell.hidden=false;
+      if(nativeAd.followBottom){nativeAd.followBottom=false;const revision=nativeAd.scrollRevision;requestAnimationFrame(()=>{
+        if(revision===nativeAd.scrollRevision&&!nativeAd.dismissed&&nativeAd.owner===state.currentChatId&&!state.isStreaming)scrollToBottom(true);
+      });}
+    }
   }
 }
 function checkNativeAdRendered() {
@@ -1099,9 +1113,9 @@ function checkNativeAdRendered() {
     const image=card.querySelector('[class$="__img"]');
     // SDK may keep href="//" until its own pointer/click handler resolves it.
     const href=link?.getAttribute('href')||'';
-    return link&&(/^(https?:|\/\/)/i.test(href))&&title?.textContent.trim().length>2&&
-      image&&getComputedStyle(image).backgroundImage!=='none'&&
-      visibleInsideContainer(card)&&visibleInsideContainer(title)&&visibleInsideContainer(image);
+    return link&&(/^(https?:|\/\/)/i.test(href))&&
+      visibleInsideContainer(card)&&((image&&getComputedStyle(image).backgroundImage!=='none'&&visibleInsideContainer(image))||
+      (title?.textContent.trim().length>2&&visibleInsideContainer(title)));
   });
   const standardReady=[...container.querySelectorAll('a[href],img,iframe,video')].some(el=>{
     if(!visibleInsideContainer(el))return false;
@@ -1123,6 +1137,9 @@ function ensureNativeBannerLoaded() {
     nativeAd.observer=new MutationObserver(checkNativeAdRendered);
     nativeAd.observer.observe(container,{childList:true,subtree:true,attributes:true});
     container.addEventListener('load',checkNativeAdRendered,true);
+    container.addEventListener('loadeddata',checkNativeAdRendered,true);
+    // Layout-only changes do not trigger MutationObserver (e.g. responsive SDK).
+    if('ResizeObserver' in window)new ResizeObserver(checkNativeAdRendered).observe(container);
   }
   // Keep observing after timeout: a late creative can recover without reloading
   // the provider script or overriding an explicit user close.
@@ -1138,14 +1155,18 @@ function ensureNativeBannerLoaded() {
 }
 function showAdBreak() {
   const shell=document.getElementById('adsterraAdShell');if(!shell)return;
-  nativeAd.owner=state.currentChatId;nativeAd.dismissed=false;
+  nativeAd.owner=state.currentChatId;nativeAd.dismissed=false;nativeAd.followBottom=!userScrolledUp;
   const closeButton=document.getElementById('adsterraCloseButton');if(closeButton) closeButton.hidden = false;
   // Preserve rendered contents and the single script across SPA rerenders.
   // No auto-clicks, impression loops, popunder tags or duplicate ad units.
   dom.messages.appendChild(shell);shell.classList.add('inline-ad-mode');
-  shell.hidden=nativeAd.status==='error'||nativeAd.status==='no-fill';
-  if(!nativeAd.started || nativeAd.status==='ready')shell.hidden=false;
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{ensureNativeBannerLoaded();checkNativeAdRendered();}));
+  // Re-check stale no-fill at the next completed reply before hiding the slot.
+  // A ready creative may now have layout even if the old timeout hid it.
+  shell.hidden=false;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ensureNativeBannerLoaded();checkNativeAdRendered();
+    if(nativeAd.status==='error'||nativeAd.status==='no-fill')shell.hidden=true;
+    else if(nativeAd.followBottom){scrollToBottom(true);if(nativeAd.status==='ready')nativeAd.followBottom=false;}
+  }));
 }
 
 /* ==========================================================
@@ -2237,7 +2258,6 @@ function updateComposerState() {
     (dom.messageInput.value.trim().length > 0 || Boolean(state.pendingAttachment));
   dom.sendBtn.disabled = !canSend;
   dom.sendBtn.title = "Send message";
-  dom.attachBtn.disabled = state.isStreaming;
   if (dom.micBtn) dom.micBtn.disabled = state.isStreaming || !recognition;
   // While generating, the send button swaps to a Stop button.
   dom.sendBtn.hidden = state.isStreaming;
@@ -2814,10 +2834,10 @@ function streamWithProvider(apiMessages, provider, model, timeoutMs, outputToken
               throw new Error("Provider response exceeded safe size limit");
             }
             events.push(decoder.decode(value, { stream: true }));
-            if (settled || doneSignal) break;
+            if (settled || doneSignal || finishReason) break;
           }
-          if (!settled && !doneSignal) events.push(decoder.decode(), true);
-          if (doneSignal) {
+          if (!settled && !doneSignal && !finishReason) events.push(decoder.decode(), true);
+          if (doneSignal || finishReason) {
             try { await reader.cancel(); } catch (e) { /* already closed */ }
           }
           clearTimeout(timeout);
@@ -3131,8 +3151,30 @@ function initEventListeners() {
   dom.sendBtn.addEventListener("click", sendMessage);
   if (dom.stopBtn) dom.stopBtn.addEventListener("click", stopStreaming);
   if (dom.deepThinkToggle) dom.deepThinkToggle.addEventListener("click", toggleDeepThink);
-  dom.attachBtn.addEventListener("click", () => {
-    if (!dom.attachBtn.disabled) dom.fileInput.click();
+  // File drop replaces the removed upload icon. Never navigate to dropped files.
+  const isFileDrop=e=>Array.from(e.dataTransfer?.types||[]).includes('Files');
+  document.addEventListener('dragover',e=>{
+    if(!isFileDrop(e))return;e.preventDefault();
+    e.dataTransfer.dropEffect=state.isStreaming||state.fileReading?'none':'copy';
+  });
+  document.addEventListener('drop',e=>{
+    if(!isFileDrop(e))return;e.preventDefault();
+    if(state.isStreaming||state.fileReading){showToast("Wait for the current reply/file read to finish before dropping a file.");return;}
+    if(document.querySelector('.main')?.inert){showToast("Close the sidebar before dropping a file.");return;}
+    const files=Array.from(e.dataTransfer.files||[]);
+    if(files.length!==1){showToast("Drop one text/code file at a time.");return;}
+    if(Array.from(e.dataTransfer.items||[]).some(item=>item.webkitGetAsEntry?.()?.isDirectory)){
+      showToast("Drop a text/code file, not a folder.");return;
+    }
+    if(!isSupportedTextFile(files[0])){showToast("Only text/code files are supported.");return;}
+    if(files[0].size>MAX_UPLOAD_BYTES){showToast("File is too large. Maximum supported size is 3 MB.");return;}
+    handleFileSelection(files[0]);
+  });
+  // An invisible keyboard fallback preserves file-chooser access without an icon.
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='u'&&dom.composer.contains(document.activeElement)){
+      e.preventDefault();if(!state.isStreaming&&!state.fileReading)dom.fileInput.click();
+    }
   });
   dom.fileInput.addEventListener("change", () => {
     handleFileSelection(dom.fileInput.files && dom.fileInput.files[0]);
@@ -3166,6 +3208,10 @@ function initEventListeners() {
 
   // Voice
   dom.micBtn.addEventListener("click", toggleVoice);
+
+  // Never pull the reader down when they deliberately scroll while an ad loads.
+  for(const event of ['wheel','touchmove'])dom.chatArea.addEventListener(event,()=>{nativeAd.followBottom=false;nativeAd.scrollRevision++;},{passive:true});
+  dom.chatArea.addEventListener('keydown',e=>{if(['ArrowUp','PageUp','Home'].includes(e.key)){nativeAd.followBottom=false;nativeAd.scrollRevision++;}});
 
   // Scroll awareness (auto-scroll pause when reading up)
   dom.chatArea.addEventListener("scroll", markUserScroll);

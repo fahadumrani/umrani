@@ -1,9 +1,9 @@
-Umrani v63 — prebuilt GitHub Pages deployment
-
-Extract this ZIP. Upload the contents INSIDE umrani/ to the GitHub repository root (not the ZIP itself and not an extra nested umrani folder). This package has 35 files, below the web uploader limit.
-
-Keep your existing CNAME/custom domain. Settings > Pages > Build and deployment > Deploy from a branch > main (or your branch) > / (root). This prebuilt package needs no build command. Wait for deployment, then Ctrl+F5.
-
-This is the complete RUNTIME deployment, not the complete editable source tree: tests, development scripts, source modules and historical docs are omitted. Keep umrani-no-search-v63.zip separately for source/development. Do not rebuild this deployment using old source files or old build workflows: that can overwrite the included v63 bundle. Use branch-based Pages deployment for this package. For a build/Actions workflow, upload the full v63 source ZIP contents in batches of fewer than 100 files instead.
-
-Wikipedia/web retrieval removed; device date and separate USD/PKR feed retained. Continue reply/code stability and responsive ads retained. Original public browser configuration, icon/logo assets, styles and prebuilt bundle are byte-identical to the tested v63 release. Ad/model availability is not guaranteed.
+UMRANI AI v64 / 1.3.7 — PREBUILT GITHUB PAGES DEPLOYMENT
+35 files; no npm/build/server needed. Upload extracted contents INSIDE umrani/ to repository ROOT; index.html must be at root. Do not upload the ZIP itself or nest the folder. Keep your existing custom-domain CNAME.
+GitHub Settings > Pages > Deploy from a branch > main > /(root).
+Do not run an old source-build workflow over this runtime-only package. After Pages deployment, refresh with Ctrl+F5.
+Fixes: available cached native ad after each completed reply; delayed/image-only/stale-slot detection and safe auto-follow; terminal SSE finish handling; false incomplete-code correction. One SDK, no ad refresh/click loop. No guarantee against provider no-fill, blockers or network failure.
+Only visible upload icon removed. Drop ONE supported text/code file onto page (max 3 MiB). Focus message box and Ctrl+Shift+U (Command+Shift+U on Mac) opens hidden file chooser. Mobile drag/drop depends on OS/browser; no new visible picker is added. Voice/send/Stop/history/UI remain.
+Wikipedia/web retrieval remains removed. Date and separate timestamped currency feed retained.
+77 unit tests + 9 mocked browser suites pass. Synthetic offline ad tests do NOT prove live inventory. This ZIP was NOT automatically deployed.
+Original public browser API configuration unchanged. Owner-approved direct third-party ad SDK retains page/cookie/storage access, not sandbox isolation.

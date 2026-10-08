@@ -1329,3 +1329,6 @@ svg.ui-icon[data-icon="brand"] { stroke-width: 1.9 !important; }
 
 .reply-notice { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .reply-notice .continue-reply { margin: 0; }
+
+/* Screen-reader instructions only; no visual layout/theme changes. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
